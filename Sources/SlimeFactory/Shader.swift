@@ -2,7 +2,7 @@ let shaderSource = #"""
 #include <metal_stdlib>
 using namespace metal;
 
-struct U { float2 size; float scale; float time; uint groupCount; uint lumpCount; float bandY; uint islandCount; };
+struct U { float2 size; float scale; float time; uint groupCount; uint lumpCount; float bandY; uint islandCount; float2 cam; float zoom; float pad; };
 struct Blob { float2 p; float r; float pad; float4 c; };
 struct Seg { float2 a; float2 b; float ra; float rb; float ua; float ub; };
 struct Group { float4 box; uint kind; uint start; uint count; uint flags; float4 color; float4 color2; float4 params; };
@@ -50,32 +50,34 @@ IslandSample islandField(float2 p, uint i, constant U& u, const device float4* i
     float4 m2 = isl[i * 4 + 3];
     float appear = m.x;
     float seed = m.y;
+    float z = u.zoom;
+    float2 pw = u.cam + p / z;
     float2 c = r.xy + r.zw * 0.5;
     float2 h = r.zw * 0.5 * appear;
-    float rad = min(78.0, min(h.x, h.y));
+    float rad = min(78.0 * z, min(h.x, h.y));
     float2 q = abs(p - c) - h + rad;
     float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - rad;
     float t = u.time;
-    float n1 = vnoise(p * 0.010 + float2(t * 0.11 + seed, -t * 0.08)) - 0.5;
-    float n2 = vnoise(p * 0.024 + float2(-t * 0.19, t * 0.13 + seed * 3.1)) - 0.5;
-    d += n1 * 15.0 + n2 * 2.5 + sin(t * 1.3 + seed) * 2.0;
+    float n1 = vnoise(pw * 0.010 + float2(t * 0.11 + seed, -t * 0.08)) - 0.5;
+    float n2 = vnoise(pw * 0.024 + float2(-t * 0.19, t * 0.13 + seed * 3.1)) - 0.5;
+    d += (n1 * 15.0 + n2 * 2.5 + sin(t * 1.3 + seed) * 2.0) * z;
     uint bs = uint(m.z), bc = uint(m.w);
     for (uint k = bs; k < bs + bc; k++) {
         float4 b = iblobs[k];
-        if (b.z > 0.5) { d = sminf(d, length(p - b.xy) - b.z, 58.0); }
+        if (b.z > 0.5) { d = sminf(d, length(p - b.xy) - b.z, 58.0 * z); }
     }
     float ring = 0.0;
     uint rs = uint(m2.x), rc = uint(m2.y);
     for (uint k = rs; k < rs + rc; k++) {
         float4 rp = ripples[k];
         float age = t - rp.z;
-        float R = age * 250.0;
+        float R = age * 250.0 * z;
         float dist = length(p - rp.xy);
         float env = exp(-age * 1.7) * rp.w;
-        float w1 = exp(-pow((dist - R) / 24.0, 2.0)) * env;
-        float w2 = exp(-pow((dist - R * 0.62) / 16.0, 2.0)) * env * 0.55;
+        float w1 = exp(-pow((dist - R) / (24.0 * z), 2.0)) * env;
+        float w2 = exp(-pow((dist - R * 0.62) / (16.0 * z), 2.0)) * env * 0.55;
         ring += w1 + w2;
-        d -= (w1 * 14.0 + w2 * 6.0) * smoothstep(90.0, 0.0, abs(d));
+        d -= (w1 * 14.0 + w2 * 6.0) * z * smoothstep(90.0 * z, 0.0, abs(d));
     }
     IslandSample o;
     o.d = d;
@@ -90,8 +92,9 @@ float3 background(float2 p, constant U& u, const device float4* isl, const devic
     float2 dd2 = (uvn - float2(0.5, 0.58)) * float2(u.size.x / u.size.y, 1.0);
     c += float3(0.05, 0.055, 0.095) * exp(-dot(dd2, dd2) * 2.2);
     float sp = 28.0;
-    float2 f = fract(p / sp) - 0.5;
-    float dd = length(f) * sp;
+    float2 pw0 = u.cam + p / u.zoom;
+    float2 f = fract(pw0 / sp) - 0.5;
+    float dd = length(f) * sp * min(u.zoom, 1.0);
     float dotv = (1.0 - smoothstep(0.6, 1.4, dd));
     c += float3(0.10, 0.11, 0.16) * dotv * 0.55;
     float2 v = uvn - 0.5;
@@ -104,15 +107,15 @@ float3 background(float2 p, constant U& u, const device float4* isl, const devic
         float glow = isl[i * 4 + 1].w;
         IslandSample s0 = islandField(p, i, u, isl, iblobs, ripples);
         float pop = isl[i * 4 + 3].z;
-        float push = pop * 34.0;
+        float push = pop * 34.0 * u.zoom;
         float d = s0.d - push;
         float burst = smoothstep(0.0, 0.3, pop);
         float seed = isl[i * 4 + 2].y;
         float tear = pop > 0.0 ? smoothstep(pop * 1.3 - 0.15, pop * 1.3 + 0.05, vnoise(p * 0.045 + seed * 7.0)) : 1.0;
         float fadeRim = tear * (1.0 - pop * 0.6);
         float inside = (1.0 - smoothstep(-4.0, 3.0, d)) * (1.0 - burst);
-        float swirl = vnoise(p * 0.0045 + float2(u.time * 0.05 + seed, -u.time * 0.035))
-                    + 0.5 * vnoise(p * 0.011 + float2(-u.time * 0.07, u.time * 0.06 + seed));
+        float swirl = vnoise(pw0 * 0.0045 + float2(u.time * 0.05 + seed, -u.time * 0.035))
+                    + 0.5 * vnoise(pw0 * 0.011 + float2(-u.time * 0.07, u.time * 0.06 + seed));
         float thick = swirl * 0.9 + d * 0.006 + u.time * 0.04 + seed * 0.13;
         float3 film = 0.5 + 0.5 * cos(6.2831 * (thick + float3(0.0, 0.33, 0.67)));
         float3 tint = mix(film, ic, 0.35);

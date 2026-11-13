@@ -48,6 +48,7 @@ struct SavedRope: Codable, Equatable {
 struct SavedCanvas: Codable, Equatable {
     var bubbles: [SavedBubble]
     var ropes: [SavedRope]
+    var view: [Float]?
 }
 
 final class CanvasStore {
@@ -86,12 +87,16 @@ final class CanvasStore {
         }
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? enc.encode(SavedCanvas(bubbles: bubbles, ropes: ropes)), data != lastData else { return }
+        guard let data = try? enc.encode(SavedCanvas(bubbles: bubbles, ropes: ropes, view: [world.camera.x, world.camera.y, world.zoom])), data != lastData else { return }
         lastData = data
         try? data.write(to: url, options: .atomic)
     }
 
     static func restore(_ canvas: SavedCanvas, into world: World) {
+        if let v = canvas.view, v.count == 3, v[2] > 0 {
+            world.camera = V2(v[0], v[1])
+            world.zoom = clampf(v[2], 0.25, 2.5)
+        }
         for sb in canvas.bubbles {
             let b: SoftBody
             if sb.conductor {

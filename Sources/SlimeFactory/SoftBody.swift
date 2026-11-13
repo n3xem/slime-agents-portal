@@ -74,10 +74,12 @@ final class PendingSend {
     let message: String
     let summary: String
     let color: V3
+    var approvalTitle: String?
     private var resolver: ((Bool) -> Void)?
 
     init(targetId: Int, targetName: String, ropeId: Int, message: String, summary: String, color: V3,
-         resolver: @escaping (Bool) -> Void) {
+         approvalTitle: String? = nil, resolver: @escaping (Bool) -> Void) {
+        self.approvalTitle = approvalTitle
         self.targetId = targetId
         self.targetName = targetName
         self.ropeId = ropeId
@@ -137,11 +139,13 @@ final class SoftBody {
     var activity: Activity?
     var topic: String?
     var homeTarget: V2?
+    var restSpot: V2?
     var dirName = ""
     var sandboxMode: SandboxMode = .inherit
     var usesWorktree = false
     var dirMismatch = false
     var islandId: Int?
+    var destIslandId: Int?
     var badge: Badge?
     var reportedThisTurn = false
     var savedSession: SavedSession?
@@ -247,7 +251,7 @@ final class SoftBody {
         let air = exp(-1.6 * h)
         var target = world.mouse
         if let lump = absorbInto {
-            target = world.lump(lump)?.com ?? V2(com.x, -60)
+            target = world.lump(lump).map { world.toWorld($0.com) } ?? world.toWorld(V2(world.toScreen(com).x, -60))
         }
         for i in 0..<n {
             let r = rest[i] * s
@@ -275,22 +279,8 @@ final class SoftBody {
 
     private func confine(world: World) {
         let skin = radius * 0.42 * scale
-        let minY = grabbed ? skin + 4 : world.bandY + 46 + skin
-        let maxX = world.size.x - skin, maxY = world.size.y - skin
-        for i in 0..<n {
-            if x[i].x < skin { x[i].x = skin; if v[i].x < 0 { v[i].x *= -0.35 } }
-            if x[i].x > maxX { x[i].x = maxX; if v[i].x > 0 { v[i].x *= -0.35 } }
-            if x[i].y > maxY { x[i].y = maxY; if v[i].y > 0 { v[i].y *= -0.35 } }
-            if x[i].y < minY {
-                if grabbed {
-                    x[i].y = minY
-                    if v[i].y < 0 { v[i].y *= -0.35 }
-                } else {
-                    v[i].y += (minY - x[i].y) * 0.6
-                }
-            }
-        }
-        guard !grabbed, !isConductor, let id = islandId, let island = world.island(id), island.contains(com) else { return }
+        guard !grabbed, !isConductor, let id = islandId, destIslandId == nil || destIslandId == id,
+              let island = world.island(id), island.contains(com) else { return }
         let r = island.rect
         let x0 = Float(r.minX) + skin, x1 = Float(r.maxX) - skin
         let y0 = Float(r.minY + Island.headerHeight) + skin, y1 = Float(r.maxY) - skin

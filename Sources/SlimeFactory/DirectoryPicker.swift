@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct DirectoryRequest: Equatable {
-    var point: V2
+    var point: V2?
     var islandId: Int?
     var title: String
 }

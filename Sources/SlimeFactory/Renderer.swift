@@ -23,6 +23,9 @@ struct GUniforms {
     var lumpCount: UInt32
     var bandY: Float
     var islandCount: UInt32 = 0
+    var cam: V2 = V2(0, 0)
+    var zoom: Float = 1
+    var pad: Float = 0
 }
 
 struct SceneData {
@@ -58,13 +61,19 @@ final class Renderer {
         dummy = device.makeBuffer(length: 256, options: .storageModeShared)!
     }
 
-    private func appendBody(_ b: SoftBody, color: V3, into blobs: inout [GBlob]) {
+    private var cam = V2(0, 0)
+    private var zoom: Float = 1
+
+    private func S(_ p: V2) -> V2 { (p - cam) * zoom }
+
+    private func appendBody(_ b: SoftBody, color: V3, into blobs: inout [GBlob], world: Bool = true) {
         let c = SIMD4<Float>(color, 1)
         let s = b.scale
         if s < 0.01 { return }
-        blobs.append(GBlob(p: b.com, r: b.radius * 0.66 * s, c: c))
+        let k: Float = world ? zoom : 1
+        blobs.append(GBlob(p: world ? S(b.com) : b.com, r: b.radius * 0.66 * s * k, c: c))
         for i in 0..<b.n {
-            blobs.append(GBlob(p: b.x[i], r: b.radius * 0.42 * s, c: c))
+            blobs.append(GBlob(p: world ? S(b.x[i]) : b.x[i], r: b.radius * 0.42 * s * k, c: c))
         }
     }
 
@@ -90,20 +99,28 @@ final class Renderer {
 
     func buildScene(_ w: World) -> SceneData {
         var s = SceneData()
+        cam = w.camera
+        zoom = w.zoom
         for i in w.islands + w.poppingIslands {
             let blobStart = s.islandBlobs.count
             for b in w.bodies where b.islandId == i.id && b.absorbInto == nil {
-                s.islandBlobs.append(SIMD4<Float>(b.com.x, b.com.y, b.radius * b.scale + 26, 1))
+                let c = S(b.com)
+                s.islandBlobs.append(SIMD4<Float>(c.x, c.y, (b.radius * b.scale + 26) * zoom, 1))
             }
             for d in i.detaching {
                 let age = w.time - d.t0
                 let k = max(0, 1 - age / 0.6)
                 let wobble = 1 + 0.35 * sin(age * 30) * k
-                s.islandBlobs.append(SIMD4<Float>(d.p.x, d.p.y, d.r * k * k * wobble, 1))
+                let c = S(d.p)
+                s.islandBlobs.append(SIMD4<Float>(c.x, c.y, d.r * k * k * wobble * zoom, 1))
             }
             let rippleStart = s.ripples.count
-            for r in i.ripples { s.ripples.append(SIMD4<Float>(r.p.x, r.p.y, r.t0, r.strength)) }
-            s.islands.append(SIMD4<Float>(Float(i.rect.minX), Float(i.rect.minY), Float(i.rect.width), Float(i.rect.height)))
+            for r in i.ripples {
+                let c = S(r.p)
+                s.ripples.append(SIMD4<Float>(c.x, c.y, r.t0, r.strength))
+            }
+            let o = S(V2(Float(i.rect.minX), Float(i.rect.minY)))
+            s.islands.append(SIMD4<Float>(o.x, o.y, Float(i.rect.width) * zoom, Float(i.rect.height) * zoom))
             s.islands.append(SIMD4<Float>(i.color, i.glow))
             s.islands.append(SIMD4<Float>(max(0.001, i.appear), Float(i.id % 97), Float(blobStart), Float(s.islandBlobs.count - blobStart)))
             s.islands.append(SIMD4<Float>(Float(rippleStart), Float(s.ripples.count - rippleStart), i.pop, 0))
@@ -113,7 +130,7 @@ final class Renderer {
         }
 
         let start0 = s.blobs.count
-        for l in w.lumps { appendBody(l, color: l.template.color, into: &s.blobs) }
+        for l in w.lumps { appendBody(l, color: l.template.color, into: &s.blobs, world: false) }
         if let p = w.pull {
             let c = SIMD4<Float>(w.lump(p.lumpId)?.template.color ?? V3(0.6, 0.6, 0.6), 1)
             for (pos, r) in w.neckBlobs() { s.blobs.append(GBlob(p: pos, r: r, c: c)) }
@@ -128,17 +145,18 @@ final class Renderer {
             let st = s.blobs.count
             appendBody(b, color: b.template.color, into: &s.blobs)
             if b.knob > 0.02 {
-                s.blobs.append(GBlob(p: b.knobPosition, r: 12 * b.knob * b.scale, c: SIMD4<Float>(b.template.color, 1)))
+                s.blobs.append(GBlob(p: S(b.knobPosition), r: 12 * b.knob * b.scale * zoom, c: SIMD4<Float>(b.template.color, 1)))
             }
             for t in w.transients {
                 if case .body(let id) = t.target, id == b.id {
-                    s.blobs.append(GBlob(p: t.p, r: t.r, c: SIMD4<Float>(t.color, 1)))
+                    s.blobs.append(GBlob(p: S(t.p), r: t.r * zoom, c: SIMD4<Float>(t.color, 1)))
                 }
             }
             for d in w.droplets where d.targetId == b.id && d.s > 0.8 {
-                if let pos = w.dropletPosition(d) { s.blobs.append(GBlob(p: pos, r: 11, c: SIMD4<Float>(d.color, 1))) }
+                if let pos = w.dropletPosition(d) { s.blobs.append(GBlob(p: S(pos), r: 11 * zoom, c: SIMD4<Float>(d.color, 1))) }
             }
-            addGroup(&s, kind: 0, start: st, color: SIMD4<Float>(b.com.x, b.com.y, 0, 0),
+            let sc = S(b.com)
+            addGroup(&s, kind: 0, start: st, color: SIMD4<Float>(sc.x, sc.y, 0, 0),
                      params: SIMD4<Float>(b.hover, b.glow, b.running, b.isConductor ? 1 : 0))
         }
 
@@ -146,7 +164,7 @@ final class Renderer {
             guard let pos = w.dropletPosition(d) else { continue }
             let st = s.blobs.count
             let grow = smooth(0, 0.12, d.s)
-            s.blobs.append(GBlob(p: pos, r: 11 * grow + 2, c: SIMD4<Float>(d.color, 1)))
+            s.blobs.append(GBlob(p: S(pos), r: (11 * grow + 2) * zoom, c: SIMD4<Float>(d.color, 1)))
             addGroup(&s, kind: 0, start: st)
         }
 
@@ -160,16 +178,17 @@ final class Renderer {
                 let ua = Float(i) / Float(m - 1), ub = Float(i + 1) / Float(m - 1)
                 func rad(_ u: Float) -> Float {
                     let e = min(u, 1 - u)
-                    return 4.2 + 6.5 * (1 - smooth(0, 0.16, e))
+                    return (4.2 + 6.5 * (1 - smooth(0, 0.16, e))) * zoom
                 }
-                s.segs.append(GSeg(a: r.pts[i], b: r.pts[i + 1], ra: rad(ua), rb: rad(ub), ua: ua, ub: ub))
-                mn = simd_min(mn, simd_min(r.pts[i], r.pts[i + 1]))
-                mx = simd_max(mx, simd_max(r.pts[i], r.pts[i + 1]))
+                let pa = S(r.pts[i]), pb = S(r.pts[i + 1])
+                s.segs.append(GSeg(a: pa, b: pb, ra: rad(ua), rb: rad(ub), ua: ua, ub: ub))
+                mn = simd_min(mn, simd_min(pa, pb))
+                mx = simd_max(mx, simd_max(pa, pb))
             }
             let box = SIMD4<Float>(mn.x - 16, mn.y - 16, mx.x + 40, mx.y + 50)
             s.groups.append(GGroup(box: box, kind: 1, start: UInt32(segStart), count: UInt32(m - 1),
                                    color: SIMD4<Float>(a.template.color, 1), color2: SIMD4<Float>(col2, 1),
-                                   params: SIMD4<Float>(r.length, r.alpha, r.autoSend ? 1 : 0, 0)))
+                                   params: SIMD4<Float>(r.length * zoom, r.alpha, r.autoSend ? 1 : 0, 0)))
         }
         return s
     }
@@ -182,7 +201,8 @@ final class Renderer {
     func encode(world: World, pass: MTLRenderPassDescriptor, commandBuffer: MTLCommandBuffer, scale: Float) {
         let scene = buildScene(world)
         var u = GUniforms(size: world.size, scale: scale, time: world.time, groupCount: UInt32(scene.groups.count),
-                          lumpCount: UInt32(scene.lumps.count), bandY: world.bandY, islandCount: UInt32(scene.islands.count / 4))
+                          lumpCount: UInt32(scene.lumps.count), bandY: world.bandY, islandCount: UInt32(scene.islands.count / 4),
+                          cam: world.camera, zoom: world.zoom)
         guard let enc = commandBuffer.makeRenderCommandEncoder(descriptor: pass) else { return }
         enc.setRenderPipelineState(pipeline)
         enc.setFragmentBytes(&u, length: MemoryLayout<GUniforms>.stride, index: 0)

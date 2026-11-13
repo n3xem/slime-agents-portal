@@ -122,7 +122,7 @@ final class FactoryMCP {
                          "properties": ["path": ["type": "string", "description": "ディレクトリの絶対パス。~ も使える"]],
                          "required": ["path"]]],
         ["name": "create_bubble",
-         "description": "テンプレートのスライムから新しいバブルを作る。island（島のパスか名前）か workdir を指定すると、その島の中に置く（workdir に島がなければ島も作る）。省略した設定はテンプレートの既定に従う。start が true なら Claude Code のセッションもすぐ起動する。",
+         "description": "テンプレートのスライムから新しいバブルを作る。island（島のパスか名前）か workdir を指定すると、その島の中に置く（workdir に島がなければ島も作る）。省略した設定はテンプレートの既定に従う。start が true なら Claude Code のセッションもすぐ起動する。サンドボックス・権限モード・Chrome 連携をテンプレートの既定より緩める指定は、人が画面で承認するまで反映されない。",
          "inputSchema": ["type": "object",
                          "properties": configProps.merging([
                              "template": ["type": "string", "description": "テンプレートの id または名前"],
@@ -132,15 +132,16 @@ final class FactoryMCP {
                          ]) { a, _ in a },
                          "required": ["template"]]],
         ["name": "configure_bubble",
-         "description": "バブルの作業ディレクトリ・サンドボックス・権限モード・worktree を変える。セッションの起動後は、サンドボックスと権限モードだけを restart: true で再起動して反映できる。",
+         "description": "バブルの作業ディレクトリ・サンドボックス・権限モード・worktree を変える。island を指定すると、バブルをその島へ移す。セッションの起動後は、サンドボックスと権限モードだけを restart: true で再起動して反映できる。サンドボックス・権限モード・Chrome 連携をいまより緩める変更は、人が画面で承認するまで反映されない。",
          "inputSchema": ["type": "object",
                          "properties": configProps.merging([
                              "name": ["type": "string"],
+                             "island": ["type": "string", "description": "バブルを移す島のパスまたは名前。起動前なら作業ディレクトリもその島にする"],
                              "restart": ["type": "boolean", "description": "起動済みのセッションを再起動して反映する（会話は --resume で引き継ぐ）"],
                          ]) { a, _ in a },
                          "required": ["name"]]],
         ["name": "connect_bubbles",
-         "description": "バブルからバブルへ矢印を引く。矢印の向きにだけ SendMessage で送れる。auto_send が true なら人の承認なしで送れる。",
+         "description": "バブルからバブルへ矢印を引く。矢印の向きにだけ SendMessage で送れる。auto_send が true なら人の承認なしで送れる。auto_send を true にする変更は、人が画面で承認するまで反映されない。",
          "inputSchema": ["type": "object",
                          "properties": ["from": ["type": "string"], "to": ["type": "string"], "auto_send": ["type": "boolean"]],
                          "required": ["from", "to"]]],
@@ -202,6 +203,71 @@ final class FactoryMCP {
     }
 
     private func apply(_ args: [String: Any], to b: SoftBody, started: Bool) throws {
+        b.config = try applied(args, to: b, started: started)
+    }
+
+    private func persist(_ args: [String: Any], to b: SoftBody) {
+        if let sb = string(args, "sandbox"), let mode = SandboxMode(rawValue: sb) { b.savedSession?.sandbox = mode }
+        if let pm = args["permission_mode"] as? String { b.savedSession?.permissionMode = pm }
+        if string(args, "chrome") != nil, let c = b.config.chrome { b.savedSession?.chrome = c }
+    }
+
+    private func effective(_ b: SoftBody) -> LaunchConfig {
+        sessions.existing(b.id)?.config ?? sessions.existingAgy(b.id)?.config ?? b.savedSession?.launchConfig
+            ?? sessions.launchConfig(for: b, store: store)
+    }
+
+    private static func sandboxRank(_ m: SandboxMode) -> Int {
+        switch m {
+        case .off: return 0
+        case .inherit: return 1
+        case .on: return 2
+        case .strict: return 3
+        }
+    }
+
+    private static func permissionRank(_ v: String) -> Int {
+        switch v {
+        case "plan", "manual", "dontAsk": return 0
+        case "": return 1
+        case "acceptEdits", "accept-edits": return 2
+        case "auto": return 3
+        case "bypassPermissions": return 4
+        default: return 4
+        }
+    }
+
+    private func permissionLabel(_ v: String, engine: Engine) -> String {
+        (engine == .agy ? AgyModes.all : PermissionModes.all).first { $0.value == v }?.label ?? v
+    }
+
+    private func loosening(_ args: [String: Any], for b: SoftBody) -> (keys: Set<String>, lines: [String]) {
+        let cur = effective(b)
+        var keys = Set<String>(), lines: [String] = []
+        if let sb = string(args, "sandbox"), let mode = SandboxMode(rawValue: sb),
+           Self.sandboxRank(mode) < Self.sandboxRank(cur.sandbox) {
+            keys.insert("sandbox")
+            lines.append("サンドボックス: \(cur.sandbox.short) → \(mode.short)")
+        }
+        if let pm = args["permission_mode"] as? String,
+           Self.permissionRank(pm) > Self.permissionRank(cur.permissionMode) {
+            keys.insert("permission_mode")
+            lines.append("権限モード: \(permissionLabel(cur.permissionMode, engine: b.engine)) → \(permissionLabel(pm, engine: b.engine))")
+        }
+        if let c = string(args, "chrome"), (c == "on" && cur.chrome != true) || (c == "default" && cur.chrome == false) {
+            keys.insert("chrome")
+            lines.append("Chrome 連携: \(cur.chrome.map { $0 ? "オン" : "オフ" } ?? "既定") → \(c == "on" ? "オン" : "既定")")
+        }
+        return (keys, lines)
+    }
+
+    private func requestApproval(_ b: SoftBody, title: String, lines: [String], onDecision: @escaping (Bool) -> Void) {
+        let p = PendingSend(targetId: b.id, targetName: b.displayName, ropeId: -1, message: lines.joined(separator: "\n"), summary: "",
+                            color: V3(0.95, 0.55, 0.3), approvalTitle: title, resolver: onDecision)
+        world.addPending(p, to: b)
+    }
+
+    private func applied(_ args: [String: Any], to b: SoftBody, started: Bool) throws -> BubbleConfig {
         var cfg = b.config
         if let w = string(args, "workdir") {
             if started { throw ToolError(message: "「\(b.name)」は起動済みなので、作業ディレクトリは変えられません。") }
@@ -230,7 +296,7 @@ final class FactoryMCP {
             }
             cfg.permissionMode = pm
         }
-        b.config = cfg
+        return cfg
     }
 
     private func describe(_ b: SoftBody) -> [String: Any] {
@@ -307,10 +373,12 @@ final class FactoryMCP {
                 throw ToolError(message: "バブルを作れませんでした。")
             }
             if let island { b.config.workdir = island.path }
+            var rest = args
+            if island != nil { rest["workdir"] = nil }
+            let risky = loosening(rest, for: b)
             do {
-                var rest = args
-                if island != nil { rest["workdir"] = nil }
-                try apply(rest, to: b, started: false)
+                _ = try applied(rest, to: b, started: false)
+                try apply(rest.filter { !risky.keys.contains($0.key) }, to: b, started: false)
             } catch {
                 world.bodies.removeAll { $0.id == b.id }
                 throw error
@@ -319,22 +387,63 @@ final class FactoryMCP {
                 b.title = n
                 b.titleLocked = true
             }
-            if args["start"] as? Bool == true { sessions.start(b, store: store) }
+            let start = args["start"] as? Bool == true
+            if !risky.keys.isEmpty {
+                let riskyArgs = rest.filter { risky.keys.contains($0.key) }
+                requestApproval(b, title: "管理が「\(b.displayName)」の設定を緩めようとしています", lines: risky.lines) { [weak self, weak b] ok in
+                    guard let self, let b else { return }
+                    if ok { try? self.apply(riskyArgs, to: b, started: false) }
+                    if start { self.sessions.start(b, store: self.store) }
+                }
+                var d = describe(b)
+                d["approval"] = "次の変更は人の承認待ちです。承認されるまで反映されません（start も承認の判断のあとに行います）: " + risky.lines.joined(separator: "、")
+                return d
+            }
+            if start { sessions.start(b, store: store) }
             return describe(b)
         case "configure_bubble":
             let b = try bubble(string(args, "name"))
             let started = (sessions.hasStarted(b.id) && sessions.isAlive(b.id))
-            try apply(args, to: b, started: started || b.savedSession != nil)
-            if let sb = string(args, "sandbox"), let mode = SandboxMode(rawValue: sb) { b.savedSession?.sandbox = mode }
-            if let pm = args["permission_mode"] as? String { b.savedSession?.permissionMode = pm }
-            if string(args, "chrome") != nil, let c = b.config.chrome { b.savedSession?.chrome = c }
+            let locked = started || b.savedSession != nil
+            var moveNote: String?
+            if let key = string(args, "island") {
+                let expanded = (key as NSString).expandingTildeInPath
+                guard let target = world.islands.first(where: { $0.path == expanded || $0.name == key }) else {
+                    throw ToolError(message: "島「\(key)」がありません。list_islands で確認するか、create_island で作ってください。")
+                }
+                if !locked { b.config.workdir = target.path }
+                world.send(b, to: target)
+                moveNote = locked
+                    ? "「\(target.name)」の島へ移しましたが、起動済みのため作業ディレクトリは \(effective(b).workdir) のままです。"
+                    : "「\(target.name)」の島へ移し、作業ディレクトリを \(target.path) にしました。"
+            }
+            let risky = loosening(args, for: b)
+            _ = try applied(args, to: b, started: locked)
+            let safeArgs = args.filter { !risky.keys.contains($0.key) }
+            try apply(safeArgs, to: b, started: locked)
+            persist(safeArgs, to: b)
             b.kick(2.5)
+            if !risky.keys.isEmpty {
+                let riskyArgs = args.filter { risky.keys.contains($0.key) }
+                let restart = args["restart"] as? Bool == true
+                requestApproval(b, title: "管理が「\(b.displayName)」の設定を緩めようとしています", lines: risky.lines) { [weak self, weak b] ok in
+                    guard let self, let b, ok else { return }
+                    try? self.apply(riskyArgs, to: b, started: locked)
+                    self.persist(riskyArgs, to: b)
+                    if restart && self.sessions.isAlive(b.id) { self.sessions.restart(b, store: self.store) }
+                }
+                return ["result": "次の変更は人の承認待ちです。承認されるまで反映されません\(restart ? "（再起動も承認のあとに行います）" : "")。"
+                            + risky.lines.joined(separator: "、")
+                            + (safeArgs.keys.contains { $0 != "name" && $0 != "restart" } ? "。それ以外の変更は反映しました。" : ""),
+                        "bubble": describe(b)]
+            }
+            if let moveNote, !started { return ["result": moveNote, "bubble": describe(b)] }
             if started {
                 if args["restart"] as? Bool == true {
                     sessions.restart(b, store: store)
                     return ["result": "再起動して反映しました（会話は引き継ぎます）", "bubble": describe(b)]
                 }
-                return ["result": "設定を保存しました。起動中のセッションには、restart: true で再起動するまで反映されません。", "bubble": describe(b)]
+                return ["result": (moveNote ?? "") + "設定を保存しました。起動中のセッションには、restart: true で再起動するまで反映されません。", "bubble": describe(b)]
             }
             return describe(b)
         case "connect_bubbles":
@@ -344,8 +453,18 @@ final class FactoryMCP {
                 throw ToolError(message: "Antigravity CLI のバブルは矢印でつなげません。")
             }
             let r = world.rope(from: a.id, to: t.id) ?? world.connect(a, t)
-            r.autoSend = args["auto_send"] as? Bool ?? r.autoSend
             t.kick(3)
+            if let auto = args["auto_send"] as? Bool {
+                if auto && !r.autoSend {
+                    requestApproval(a, title: "管理が「\(a.displayName)」→「\(t.displayName)」を承認なしで送るようにしようとしています",
+                                    lines: ["この矢印の送信で「送る / 止める」の確認を出さなくなります"]) { [weak r] ok in
+                        if ok { r?.autoSend = true }
+                    }
+                    return ["result": "「\(a.name)」→「\(t.name)」をつなぎました。承認なしで送る設定は、人の承認待ちです。承認されるまで、送信のたびに人が確認します。",
+                            "auto_send": false]
+                }
+                r.autoSend = auto
+            }
             return ["result": "「\(a.name)」→「\(t.name)」をつなぎました", "auto_send": r.autoSend]
         case "disconnect_bubbles":
             let a = try bubble(string(args, "from")), t = try bubble(string(args, "to"))

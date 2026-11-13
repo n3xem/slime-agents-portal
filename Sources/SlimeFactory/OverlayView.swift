@@ -18,6 +18,42 @@ struct OverlayView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
+            mapLayer
+                .frame(width: CGFloat(world.size.x), height: CGFloat(world.size.y), alignment: .topLeading)
+                .scaleEffect(CGFloat(world.zoom), anchor: .topLeading)
+                .offset(x: CGFloat(-world.camera.x * world.zoom), y: CGFloat(-world.camera.y * world.zoom))
+            ForEach(world.lumps, id: \.id) { l in
+                VStack(spacing: 1) {
+                    Image(systemName: l.template.symbol)
+                        .font(.system(size: 15, weight: .bold))
+                        .overlay(alignment: .topTrailing) {
+                            EngineMark(engine: l.template.engine, size: 14)
+                                .offset(x: 13, y: -6)
+                        }
+                    Text(l.template.name)
+                        .font(.system(size: 11, weight: .heavy, design: .rounded))
+                }
+                .foregroundStyle(.white.opacity(0.95))
+                .shadow(color: .black.opacity(0.45), radius: 1.5, y: 1)
+                .scaleEffect(CGFloat(l.scale))
+                .position(x: CGFloat(l.com.x), y: CGFloat(l.com.y + 6))
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Slime Factory")
+                    .font(.system(size: 15, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.85))
+                Text("スライムを下へ引っ張る → バブル　·　バブルをクリック → ターミナル　·　スライムをクリック → AGENTS.md を編集　·　縁をつまんで引っ張る → 矢印　·　上に戻す → 削除　·　空いた所を右クリック → 島を作る")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.45))
+            }
+            .position(x: CGFloat(world.size.x) / 2, y: CGFloat(world.size.y) - 30)
+        }
+        .frame(width: CGFloat(world.size.x), height: CGFloat(world.size.y), alignment: .topLeading)
+        .allowsHitTesting(false)
+    }
+
+    private var mapLayer: some View {
+        ZStack(alignment: .topLeading) {
             ForEach(world.islands + world.poppingIslands, id: \.id) { i in
                 let a = CGFloat(clampf(i.appear, 0, 1.2))
                 let fade = Double(max(0, 1 - i.pop * 2.5))
@@ -115,22 +151,6 @@ struct OverlayView: View {
             }
             .allowsHitTesting(false)
 
-            ForEach(world.lumps, id: \.id) { l in
-                VStack(spacing: 1) {
-                    Image(systemName: l.template.symbol)
-                        .font(.system(size: 15, weight: .bold))
-                        .overlay(alignment: .topTrailing) {
-                            EngineMark(engine: l.template.engine, size: 14)
-                                .offset(x: 13, y: -6)
-                        }
-                    Text(l.template.name)
-                        .font(.system(size: 11, weight: .heavy, design: .rounded))
-                }
-                .foregroundStyle(.white.opacity(0.95))
-                .shadow(color: .black.opacity(0.45), radius: 1.5, y: 1)
-                .scaleEffect(CGFloat(l.scale))
-                .position(x: CGFloat(l.com.x), y: CGFloat(l.com.y + 6))
-            }
 
             ForEach(world.bodies, id: \.id) { b in
                 VStack(spacing: 2) {
@@ -190,7 +210,7 @@ struct OverlayView: View {
             ForEach(world.bodies.filter { ($0.activity != nil || $0.topic != nil) && $0.absorbInto == nil }, id: \.id) { b in
                 activityBalloon(b)
                     .scaleEffect(CGFloat(max(b.scale, 0.001)), anchor: .bottom)
-                    .position(x: CGFloat(b.com.x), y: max(118, CGFloat(b.com.y - b.radius * b.scale - 30)))
+                    .position(x: CGFloat(b.com.x), y: max(world.visibleRect.minY + 78 / CGFloat(world.zoom), CGFloat(b.com.y - b.radius * b.scale - 30)))
             }
 
             ForEach(world.bodies.filter { $0.badge != nil && $0.absorbInto == nil }, id: \.id) { b in
@@ -222,7 +242,7 @@ struct OverlayView: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.55))
                     .fixedSize()
-                    .position(x: CGFloat(c.com.x + (c.com.x > world.size.x - 240 ? -1 : 1) * (c.radius + 70)), y: CGFloat(c.com.y))
+                    .position(x: CGFloat(c.com.x + (CGFloat(c.com.x) > world.visibleRect.maxX - 240 ? -1 : 1) * (c.radius + 70)), y: CGFloat(c.com.y))
             }
 
             ForEach(world.bodies.filter { !$0.pending.isEmpty }, id: \.id) { b in
@@ -230,10 +250,10 @@ struct OverlayView: View {
                 if let first = pills.first, let p = b.pending.first {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
-                            Image(systemName: "envelope.fill")
+                            Image(systemName: p.approvalTitle == nil ? "envelope.fill" : "exclamationmark.shield.fill")
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(Color(p.color))
-                            Text("\(p.targetName) へのメッセージ")
+                                .foregroundStyle(p.approvalTitle == nil ? Color(p.color) : Color.orange)
+                            Text(p.approvalTitle ?? "\(p.targetName) へのメッセージ")
                                 .font(.system(size: 11, weight: .bold))
                             Spacer(minLength: 0)
                             if b.pending.count > 1 {
@@ -260,7 +280,7 @@ struct OverlayView: View {
                     )
                     .shadow(color: .black.opacity(0.4), radius: 6, y: 3)
                     .scaleEffect(springPop(b.statusTime * 1.4))
-                    .position(x: CGFloat(b.com.x), y: first.rect.minY - 45)
+                    .position(x: min(max(CGFloat(b.com.x), world.visibleRect.minX + 168), world.visibleRect.maxX - 168), y: first.rect.minY - 45)
                 }
                 ForEach(pills, id: \.index) { pl in
                     pill(pl, hovered: world.hoverPill.map { $0 == (b.id, pl.index) } ?? false)
@@ -269,15 +289,6 @@ struct OverlayView: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Slime Factory")
-                    .font(.system(size: 15, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.85))
-                Text("スライムを下へ引っ張る → バブル　·　バブルをクリック → ターミナル　·　スライムをクリック → AGENTS.md を編集　·　縁をつまんで引っ張る → 矢印　·　上に戻す → 削除　·　空いた所を右クリック → 島を作る")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.45))
-            }
-            .position(x: CGFloat(world.size.x) / 2, y: CGFloat(world.size.y) - 30)
         }
         .frame(width: CGFloat(world.size.x), height: CGFloat(world.size.y), alignment: .topLeading)
         .allowsHitTesting(false)
@@ -330,7 +341,7 @@ struct OverlayView: View {
 
     private func statusText(_ b: SoftBody) -> String {
         let dots = String(repeating: "・", count: Int(world.time * 3) % 3 + 1)
-        if !b.pending.isEmpty { return "送信の承認待ち" }
+        if let p = b.pending.first { return p.approvalTitle == nil ? "送信の承認待ち" : "設定変更の承認待ち" }
         if let badge = b.badge { return badge.kind.label }
         switch b.status {
         case .received: return "メッセージを受信"

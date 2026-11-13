@@ -64,11 +64,26 @@ final class SlimeMTKView: MTKView, MTKViewDelegate {
     override func mouseDragged(with event: NSEvent) { world.mouseDragged(point(event)) }
     override func mouseUp(with event: NSEvent) { world.mouseUp(point(event)) }
 
+    override func magnify(with event: NSEvent) {
+        world.zoom(by: 1 + Float(event.magnification), around: point(event))
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        if event.hasPreciseScrollingDeltas && !event.modifierFlags.contains(.command) {
+            world.pan(byScreen: V2(Float(event.scrollingDeltaX), Float(event.scrollingDeltaY)))
+        } else {
+            let dy = Float(event.scrollingDeltaY)
+            guard dy != 0 else { return }
+            let step: Float = event.hasPreciseScrollingDeltas ? 1 + dy * 0.01 : (dy > 0 ? 1.1 : 1 / 1.1)
+            world.zoom(by: step, around: point(event))
+        }
+    }
+
     var configMenu: ((SoftBody, NSMenu) -> Void)?
     var canvasMenu: ((V2, Island?, NSMenu) -> Void)?
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        let (b, r) = world.menuTarget(at: point(event))
+        let (b, r) = world.menuTarget(at: world.toWorld(point(event)))
         menuBody = b
         menuRope = r
         let m = NSMenu()
@@ -94,7 +109,7 @@ final class SlimeMTKView: MTKView, MTKViewDelegate {
             m.addItem(withTitle: "矢印を外す", action: #selector(menuRemoveRope), keyEquivalent: "").target = self
             return m
         }
-        let p = point(event)
+        let p = world.toWorld(point(event))
         canvasMenu?(p, world.islandAt(p), m)
         return m.items.isEmpty ? nil : m
     }
@@ -212,11 +227,11 @@ final class BubbleMenuBuilder: NSObject {
         if let iid = req.islandId, let i = world.island(iid) {
             i.path = path
             world.onIslandsChanged?()
-        } else if req.point.x < 0 {
-            world.addIsland(path: path)
-        } else {
-            let r = CGRect(x: CGFloat(req.point.x) - 300, y: CGFloat(req.point.y) - 40, width: 600, height: 300)
+        } else if let pt = req.point {
+            let r = CGRect(x: CGFloat(pt.x) - 300, y: CGFloat(pt.y) - 40, width: 600, height: 300)
             world.addIsland(path: path, rect: r)
+        } else {
+            world.addIsland(path: path)
         }
         store.noteRecent(path)
     }
@@ -241,6 +256,8 @@ final class BubbleMenuBuilder: NSObject {
         if let path = item.representedObject as? String { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
     }
 
+    @objc private func resetView() { world.resetView() }
+
     @objc private func deleteIsland(_ item: NSMenuItem) {
         if let iid = item.representedObject as? Int, let i = world.island(iid) { world.removeIsland(i) }
     }
@@ -263,11 +280,17 @@ final class BubbleMenuBuilder: NSObject {
             m.addItem(del)
         } else {
             m.addItem(directoryItem("ここに島を作る…", DirectoryRequest(point: p, islandId: nil, title: "ここに島を作る")))
+            if world.zoom != 1 || world.camera != V2(0, 0) {
+                m.addItem(.separator())
+                let reset = NSMenuItem(title: "表示を元に戻す（等倍）", action: #selector(resetView), keyEquivalent: "")
+                reset.target = self
+                m.addItem(reset)
+            }
         }
     }
 
     func addIslandMenu(into m: NSMenu) {
-        m.addItem(directoryItem("島を追加…", DirectoryRequest(point: V2(-1, -1), islandId: nil, title: "島を追加")))
+        m.addItem(directoryItem("島を追加…", DirectoryRequest(point: nil, islandId: nil, title: "島を追加")))
     }
 
     func build(_ b: SoftBody, into m: NSMenu) {
@@ -375,12 +398,13 @@ struct ContentView: View {
     @ObservedObject var store: TemplateStore
     @ObservedObject var sessions: SessionManager
     @StateObject private var ui = AppState()
-    @State private var menuBuilderBox: BubbleMenuBuilder?
-    private var menuBuilder: BubbleMenuBuilder {
-        if let b = menuBuilderBox { return b }
-        let b = BubbleMenuBuilder(world: world, sessions: sessions, store: store)
-        DispatchQueue.main.async { menuBuilderBox = b }
-        return b
+    @State private var menuBuilder: BubbleMenuBuilder
+
+    init(world: World, store: TemplateStore, sessions: SessionManager) {
+        self.world = world
+        self.store = store
+        self.sessions = sessions
+        _menuBuilder = State(initialValue: BubbleMenuBuilder(world: world, sessions: sessions, store: store))
     }
 
     var body: some View {
@@ -548,7 +572,7 @@ struct ContentView: View {
 
     private func openDirectoryPicker(_ req: DirectoryRequest, size: CGSize) {
         world.cancelInteraction()
-        ui.anchor = req.point.x < 0 ? .bottomTrailing : anchor(req.point, size)
+        ui.anchor = req.point.map { anchor(world.toScreen($0), size) } ?? .bottomTrailing
         withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) {
             ui.openBodyId = nil
             ui.editingTemplateId = nil
@@ -621,7 +645,7 @@ struct ContentView: View {
             guard sessions.start(b, store: store) else { return }
             world.cancelInteraction()
             world.mouse = V2(-1000, -1000)
-            ui.anchor = anchor(b.com, size)
+            ui.anchor = anchor(world.toScreen(b.com), size)
             withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) {
                 ui.editingTemplateId = nil
                 ui.shellOpen = false

@@ -47,6 +47,7 @@ enum DragMode {
     case rope(Int)
     case island(Int, [Int])
     case islandResize(Int)
+    case pan(V2, V2)
 }
 
 enum CursorKind {
@@ -71,10 +72,45 @@ final class World {
     var mouse = V2(-1000, -1000)
     var mouseVel = V2(0, 0)
     private var lastMouse = V2(-1000, -1000)
+    var mouseScreen = V2(-1000, -1000)
+    var mouseScreenVel = V2(0, 0)
+    private var lastMouseScreen = V2(-1000, -1000)
+    var zoom: Float = 1
+    var camera = V2(0, 0)
+
+    func toWorld(_ s: V2) -> V2 { camera + s / zoom }
+    func toScreen(_ w: V2) -> V2 { (w - camera) * zoom }
+
+    var visibleRect: CGRect {
+        let a = toWorld(V2(0, bandY + 40)), b = toWorld(size)
+        return CGRect(x: CGFloat(a.x), y: CGFloat(a.y), width: CGFloat(b.x - a.x), height: CGFloat(b.y - a.y))
+    }
+
+    private func refreshMouse() {
+        if mouseScreen.x > -999 { mouse = toWorld(mouseScreen) }
+    }
+
+    func zoom(by factor: Float, around s: V2) {
+        let anchor = toWorld(s)
+        zoom = clampf(zoom * factor, 0.25, 2.5)
+        camera = anchor - s / zoom
+        refreshMouse()
+    }
+
+    func pan(byScreen d: V2) {
+        camera -= d / zoom
+        refreshMouse()
+    }
+
+    func resetView() {
+        zoom = 1
+        camera = V2(0, 0)
+        refreshMouse()
+    }
     var mouseIsDown = false
     var dragMode: DragMode = .none
     private var downTime: Float = 0
-    private var downPos = V2(0, 0)
+    private var downScreen = V2(0, 0)
     private var nextId = 100
     private var accumulator: Float = 0
     var hoverPill: (Int, Int)?
@@ -121,9 +157,7 @@ final class World {
 
     var conductorSpot: V2?
     var conductorHome: V2 {
-        guard let p = conductorSpot else { return V2(92, size.y - 110) }
-        let m: Float = 60
-        return V2(clampf(p.x, m, max(m, size.x - m)), clampf(p.y, bandY + 46 + m, max(bandY + 46 + m, size.y - m)))
+        conductorSpot ?? V2(92, size.y - 110)
     }
 
     func placeConductor(at p: V2) {
@@ -170,18 +204,19 @@ final class World {
     func islandFor(path: String) -> Island? { islands.first { $0.path == path } }
 
     func freeIslandRect(size want: CGSize = CGSize(width: 620, height: 320)) -> CGRect {
-        let top = CGFloat(bandY + 110)
+        let vis = visibleRect
+        let top = vis.minY + 70
         var y = top
-        while y + want.height < CGFloat(size.y) - 60 {
-            var x: CGFloat = 40
-            while x + want.width < CGFloat(size.x) - 40 {
+        while y + want.height < vis.maxY - 60 {
+            var x: CGFloat = vis.minX + 40
+            while x + want.width < vis.maxX - 40 {
                 let r = CGRect(x: x, y: y, width: want.width, height: want.height)
                 if !islands.contains(where: { $0.rect.insetBy(dx: -24, dy: -24).intersects(r) }) { return r }
                 x += 40
             }
             y += 40
         }
-        return CGRect(x: 60 + CGFloat(islands.count * 30), y: top + CGFloat(islands.count * 30), width: want.width, height: want.height)
+        return CGRect(x: vis.minX + 60 + CGFloat(islands.count * 30), y: top + CGFloat(islands.count * 30), width: want.width, height: want.height)
     }
 
     @discardableResult
@@ -190,7 +225,7 @@ final class World {
         let i = Island(id: nextId, path: path, rect: rect ?? freeIslandRect())
         nextId += 1
         i.appearV = 2
-        for b in bodies where !b.isConductor && b.islandId == nil && i.contains(b.com) { b.islandId = i.id }
+        for b in bodies where !b.isConductor && b.islandId == nil && b.destIslandId == nil && i.contains(b.com) { b.islandId = i.id }
         islands.append(i)
         onIslandsChanged?()
         return i
@@ -267,7 +302,11 @@ final class World {
             } else if b.islandId != nil {
                 b.islandId = nil
             }
-            if let next = islandAt(b.com) { enter(b, next) }
+            if let dest = b.destIslandId, island(dest) == nil { b.destIslandId = nil }
+            if let next = islandAt(b.com), b.destIslandId == nil || b.destIslandId == next.id {
+                enter(b, next)
+                b.destIslandId = nil
+            }
         }
     }
 
@@ -310,16 +349,17 @@ final class World {
 
     private func shiftIsland(_ i: Island, by d: CGPoint) -> Bool {
         let r = i.rect
-        let minX: CGFloat = 8, minY = CGFloat(bandY + 80)
-        let maxX = max(minX, CGFloat(size.x) - r.width - 8), maxY = max(minY, CGFloat(size.y) - r.height - 8)
-        let nx = min(max(r.minX + d.x, minX), maxX), ny = min(max(r.minY + d.y, minY), maxY)
+        let nx = r.minX + d.x, ny = r.minY + d.y
         let delta = V2(Float(nx - r.minX), Float(ny - r.minY))
         if abs(delta.x) < 0.01 && abs(delta.y) < 0.01 { return false }
         i.rect = CGRect(x: nx, y: ny, width: r.width, height: r.height)
-        for b in bodies where b.islandId == i.id && !b.grabbed && b.absorbInto == nil {
+        for b in bodies where b.islandId == i.id && b.destIslandId == nil && !b.grabbed && b.absorbInto == nil {
             for k in 0..<b.n { b.x[k] += delta }
             if let h = b.homeTarget { b.homeTarget = h + delta }
             b.computeCom()
+        }
+        for b in bodies where b.destIslandId == i.id && !b.grabbed {
+            if let h = b.homeTarget { b.homeTarget = h + delta }
         }
         return true
     }
@@ -343,6 +383,16 @@ final class World {
         onIslandsChanged?()
     }
 
+    func send(_ b: SoftBody, to island: Island) {
+        let c = V2(Float(island.rect.midX), Float(island.rect.midY))
+        b.homeTarget = freeSpot(near: c, in: island.rect)
+        if b.islandId != island.id {
+            b.islandId = nil
+            b.destIslandId = island.id
+        }
+        b.kick(3)
+    }
+
     func bodiesInside(_ i: Island) -> [Int] {
         bodies.filter { !$0.isConductor && $0.absorbInto == nil && i.contains($0.com) }.map(\.id)
     }
@@ -352,10 +402,11 @@ final class World {
         var bestScore: Float = .infinity
         let minGap = bubbleR * 2.7
         let bounds = area.map { $0.insetBy(dx: CGFloat(bubbleR) + 14, dy: CGFloat(bubbleR) + 10) }
-        let y0: Float = bounds.map { Float($0.minY) + Float(Island.headerHeight) } ?? bandY + 170
-        let y1: Float = bounds.map { Float($0.maxY) } ?? size.y - 150
+        let vis = visibleRect
+        let y0: Float = bounds.map { Float($0.minY) + Float(Island.headerHeight) } ?? Float(vis.minY) + 130
+        let y1: Float = bounds.map { Float($0.maxY) } ?? Float(vis.maxY) - 150
         let x0: Float = bounds.map { Float($0.minX) } ?? 130
-        let x1: Float = bounds.map { Float($0.maxX) } ?? size.x - 130
+        let x1: Float = bounds.map { Float($0.maxX) } ?? Float(vis.maxX) - 130
         var y: Float = y0
         while y <= y1 {
             var x: Float = x0
@@ -376,7 +427,7 @@ final class World {
     @discardableResult
     func spawnFromLump(templateId: String, name: String?, near: V2? = nil, in island: Island? = nil) -> SoftBody? {
         guard let lump = lump(templateId) else { return nil }
-        let start = lump.tip(toward: V2(0, 1)) + V2(0, 12)
+        let start = toWorld(lump.tip(toward: V2(0, 1)) + V2(0, 12))
         let b = SoftBody(id: nextId, template: lump.template, name: uniqueName(name ?? lump.template.name, avoiding: ClaudeSessionRegistry.namesInUse()), center: start, radius: bubbleR)
         nextId += 1
         b.scale = 0.25
@@ -384,8 +435,9 @@ final class World {
         if let island {
             let c = V2(Float(island.rect.midX), Float(island.rect.midY))
             b.homeTarget = freeSpot(near: near ?? c, in: island.rect)
+            b.destIslandId = island.id
         } else {
-            b.homeTarget = freeSpot(near: near ?? V2(lump.anchor.x, size.y * 0.45))
+            b.homeTarget = freeSpot(near: near ?? toWorld(V2(lump.anchor.x, size.y * 0.45)))
         }
         bodies.append(b)
         for i in 0..<lump.n where !lump.pinned[i] { lump.v[i] += V2(0, 260) }
@@ -436,9 +488,6 @@ final class World {
         self.size = size
         placeLumps(snap: true)
         if let c = bodies.first(where: { $0.isConductor }) { c.homeTarget = conductorHome }
-        for b in bodies {
-            for j in 0..<b.n { b.x[j].x = min(b.x[j].x, size.x - 20) }
-        }
     }
 
     func body(_ id: Int) -> SoftBody? { bodies.first { $0.id == id } }
@@ -455,8 +504,16 @@ final class World {
                 mouseVel = mixv(mouseVel, mv, 0.35)
             }
             lastMouse = mouse
+            let ms = (mouseScreen - lastMouseScreen) / dt
+            if len(lastMouseScreen - V2(-1000, -1000)) > 1 && len(ms) < 20000 {
+                mouseScreenVel = mixv(mouseScreenVel, ms, 0.35)
+            }
+            lastMouseScreen = mouseScreen
         }
-        if !mouseIsDown { mouseVel *= 0.8 }
+        if !mouseIsDown {
+            mouseVel *= 0.8
+            mouseScreenVel *= 0.8
+        }
 
         let h: Float = 1.0 / 240.0
         accumulator += dt
@@ -486,7 +543,12 @@ final class World {
         }
         for b in removed { onRemoved?(b) }
         for b in bodies where !b.isConductor {
-            if let h = b.homeTarget, len(b.com - h) < 8, len(b.vcom) < 40 { b.homeTarget = nil }
+            if let h = b.homeTarget, len(b.com - h) < 8, len(b.vcom) < 40 {
+                b.homeTarget = nil
+                b.restSpot = h
+                let vc = b.vcom
+                for i in 0..<b.n { b.v[i] -= vc }
+            }
         }
     }
 
@@ -494,7 +556,7 @@ final class World {
         if var p = pull {
             guard let lump = lump(p.lumpId) else { pull = nil; return }
             let base = lump.tip(toward: norm(p.proto - lump.anchor))
-            var acc = 760 * (mouse - p.proto) + 30 * (mouseVel - p.protoV)
+            var acc = 760 * (mouseScreen - p.proto) + 30 * (mouseScreenVel - p.protoV)
             acc += -7 * (p.proto - base)
             p.protoV += acc * h
             p.proto += p.protoV * h
@@ -562,13 +624,13 @@ final class World {
         nextId += 1
         let tpl = lump.template
         let name = uniqueName(tpl.name, avoiding: ClaudeSessionRegistry.namesInUse())
-        let body = SoftBody(id: id, template: tpl, name: name, center: p.proto + dir * 8, radius: bubbleR)
+        let body = SoftBody(id: id, template: tpl, name: name, center: toWorld(p.proto + dir * 8), radius: bubbleR)
         for i in 0..<body.n {
             let r0 = body.rest[i]
             let along = simd_dot(r0, dir)
             let perp = r0 - dir * along
-            body.x[i] = p.proto + dir * (8 + along * 1.5) + perp * 0.72
-            body.v[i] = p.protoV
+            body.x[i] = toWorld(p.proto) + dir * (8 + along * 1.5) + perp * 0.72
+            body.v[i] = p.protoV / zoom
         }
         body.scale = 0.72
         body.scaleV = 4.5
@@ -579,7 +641,7 @@ final class World {
             if t < 0.55 {
                 transients.append(Transient(p: b.0, v: -dir * 160, r: b.1, color: tpl.color, target: .lump(p.lumpId)))
             } else {
-                transients.append(Transient(p: b.0, v: p.protoV * 0.5, r: b.1, color: tpl.color, target: .body(id)))
+                transients.append(Transient(p: toWorld(b.0), v: p.protoV * 0.5 / zoom, r: b.1 / zoom, color: tpl.color, target: .body(id)))
             }
         }
         for i in 0..<lump.n where !lump.pinned[i] { lump.v[i] += -dir * 240 }
@@ -631,7 +693,7 @@ final class World {
             hoverPill = pillAt(mouse)
             if hoverPill == nil {
                 hoverBody = bodyAt(mouse, slack: 1.5)?.id
-                if hoverBody == nil { hoverLump = lumpAt(mouse) }
+                if hoverBody == nil { hoverLump = lumpAt(mouseScreen) }
             }
         }
         for b in bodies {
@@ -688,9 +750,12 @@ final class World {
             if !b.pending.isEmpty { b.glow = max(b.glow, 0.55) }
             if let badge = b.badge, badge.kind.needsAttention, !b.grabbed, time - b.lastHop > 3.2 {
                 b.lastHop = time
-                if b.homeTarget == nil { b.homeTarget = b.com }
+                if b.homeTarget == nil {
+                    if let r = b.restSpot, len(r - b.com) < 40 { b.homeTarget = r } else { b.homeTarget = b.com }
+                }
                 b.kick(2.2)
                 for i in 0..<b.n { b.v[i] += V2(0, -150) }
+                b.computeCom()
                 b.glow = max(b.glow, 0.6)
             }
             b.face.update(b, world: self, dt: dt)
@@ -865,15 +930,27 @@ final class World {
 
     func pillLayout(_ b: SoftBody) -> [PillLayout] {
         guard let p = b.pending.first else { return [] }
-        let items: [(String, String, V3, Bool)] = [
+        let items: [(String, String, V3, Bool)] = p.approvalTitle == nil ? [
             ("\(p.targetName) に送る", "paperplane.fill", p.color, true),
             ("止める", "hand.raised.fill", V3(0.5, 0.52, 0.6), false),
+        ] : [
+            ("許可する", "checkmark.shield.fill", V3(0.95, 0.55, 0.3), false),
+            ("止める", "hand.raised.fill", V3(0.5, 0.52, 0.6), true),
         ]
         var out: [PillLayout] = []
-        var y = CGFloat(b.com.y + b.radius * b.scale + 96)
+        let r = CGFloat(b.radius * b.scale), cy = CGFloat(b.com.y)
+        let block = CGFloat(items.count) * 34 - 6
+        let below = cy + r + 96
+        let above = cy - r - 14 - block
+        var y = below
+        let vis = visibleRect
+        if below + block > vis.maxY - 8 {
+            y = above - 82 >= vis.minY ? above : vis.maxY - 8 - block
+        }
         for (i, it) in items.enumerated() {
             let w = (it.0 as NSString).size(withAttributes: [.font: World.pillFont]).width + 16 + 6 + 28
-            let rect = CGRect(x: CGFloat(b.com.x) - w / 2, y: y, width: w, height: 28)
+            let cx = min(max(CGFloat(b.com.x), vis.minX + w / 2 + 8), vis.maxX - w / 2 - 8)
+            let rect = CGRect(x: cx - w / 2, y: y, width: w, height: 28)
             out.append(PillLayout(rect: rect, text: it.0, icon: it.1, color: it.2, recommended: it.3, index: i))
             y += 34
         }
@@ -896,6 +973,7 @@ final class World {
         case .rope: return .crosshair
         case .island: return .closedHand
         case .islandResize: return .crosshair
+        case .pan: return .closedHand
         case .none: break
         }
         if hoverPill != nil { return .pointingHand }
@@ -914,17 +992,22 @@ final class World {
 
     // MARK: - Input
 
-    func mouseMoved(_ p: V2) {
-        mouse = p
+    func mouseMoved(_ s: V2) {
+        mouseScreen = s
+        mouse = s.x > -999 ? toWorld(s) : s
     }
 
-    func mouseDown(_ p: V2) {
+    func mouseDown(_ s: V2) {
+        let p = toWorld(s)
         mouse = p
         lastMouse = p
         mouseVel = V2(0, 0)
+        mouseScreen = s
+        lastMouseScreen = s
+        mouseScreenVel = V2(0, 0)
         mouseIsDown = true
         downTime = time
-        downPos = p
+        downScreen = s
         if let (bid, idx) = pillAt(p), let b = body(bid) {
             choose(b, idx)
             dragMode = .none
@@ -939,12 +1022,15 @@ final class World {
             return
         }
         if let b = bodyAt(p) {
-            if !b.isConductor { b.homeTarget = nil }
+            if !b.isConductor {
+                b.homeTarget = nil
+                b.destIslandId = nil
+            }
             b.startGrab(at: p)
             dragMode = .body(b.id)
             return
         }
-        if let l = lumpAt(p), let lump = lump(l) {
+        if let l = lumpAt(s), let lump = lump(l) {
             let base = lump.tip(toward: V2(0, 1))
             pull = Pull(lumpId: l, proto: base, protoV: V2(0, 0))
             dragMode = .pull
@@ -958,12 +1044,20 @@ final class World {
             dragMode = .island(i.id, bodiesInside(i))
             return
         }
-        dragMode = .none
+        dragMode = .pan(s, camera)
     }
 
-    func mouseDragged(_ p: V2) {
+    func mouseDragged(_ s: V2) {
+        if case .pan(let start, let cam) = dragMode {
+            camera = cam - (s - start) / zoom
+            mouseScreen = s
+            mouse = toWorld(s)
+            return
+        }
+        let p = toWorld(s)
         let delta = p - mouse
         mouse = p
+        mouseScreen = s
         if case .island(let iid, let members) = dragMode, let i = island(iid) {
             i.rect = i.rect.offsetBy(dx: CGFloat(delta.x), dy: CGFloat(delta.y))
             for id in members {
@@ -983,10 +1077,12 @@ final class World {
         }
     }
 
-    func mouseUp(_ p: V2) {
+    func mouseUp(_ s: V2) {
+        let p = toWorld(s)
         mouse = p
+        mouseScreen = s
         mouseIsDown = false
-        let isTap = (time - downTime) < 0.3 && len(p - downPos) < 5
+        let isTap = (time - downTime) < 0.3 && len(s - downScreen) < 5
         let mode = dragMode
         dragMode = .none
         switch mode {
@@ -1003,7 +1099,7 @@ final class World {
                     conductorSpot = b.com
                     b.homeTarget = conductorHome
                     b.kick(3)
-                } else if b.com.y < bandY + lumpR * 2.2 && !b.isConductor {
+                } else if toScreen(b.com).y < bandY + lumpR * 2.2 && !b.isConductor {
                     requestRemove(b)
                 }
             }
@@ -1032,7 +1128,7 @@ final class World {
             }
         case .island, .islandResize:
             onIslandsChanged?()
-        case .none:
+        case .pan, .none:
             break
         }
     }

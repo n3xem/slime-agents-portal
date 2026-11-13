@@ -217,6 +217,34 @@ final class SnapshotRunner {
             advance(2.5)
             capture("10_conductor_moved")
         }
+        if let b = body(named: "E2Eテスト") {
+            world.addPending(PendingSend(targetId: b.id, targetName: b.displayName, ropeId: -1,
+                                         message: "権限モード: 既定（ユーザー設定に従う） → bypassPermissions（確認なし）\nサンドボックス: オン → オフ",
+                                         summary: "", color: V3(0.95, 0.55, 0.3),
+                                         approvalTitle: "管理が「\(b.displayName)」の設定を緩めようとしています") { _ in }, to: b)
+            advance(0.6)
+            capture("12_approval")
+            world.choose(b, 1)
+        }
+        world.zoom(by: 0.6, around: V2(720, 520))
+        advance(0.4)
+        capture("13_zoom_out")
+        pullOut(0, to: V2(300, 640))
+        advance(1.2)
+        capture("13_zoom_pull")
+        world.resetView()
+        world.zoom(by: 1.7, around: V2(1000, 700))
+        advance(0.4)
+        capture("13_zoom_in")
+        let s0 = V2(160, 220)
+        world.mouseMoved(s0)
+        advance(0.05)
+        world.mouseDown(s0)
+        dragTo(s0, s0 + V2(320, 160), 0.4)
+        world.mouseUp(s0 + V2(320, 160))
+        advance(0.4)
+        capture("13_pan")
+        world.resetView()
         if let fixed = world.islands.first {
             let r = fixed.rect
             let other = world.addIsland(path: "/Users/example/workspace/other", rect: CGRect(x: r.minX - 280, y: r.minY + 80, width: 420, height: 300))
