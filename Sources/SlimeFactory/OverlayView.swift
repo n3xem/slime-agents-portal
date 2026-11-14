@@ -38,15 +38,6 @@ struct OverlayView: View {
                 .scaleEffect(CGFloat(l.scale))
                 .position(x: CGFloat(l.com.x), y: CGFloat(l.com.y + 6))
             }
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Slime Factory")
-                    .font(.system(size: 15, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.85))
-                Text("スライムを下へ引っ張る → バブル　·　バブルをクリック → ターミナル　·　スライムをクリック → AGENTS.md を編集　·　縁をつまんで引っ張る → 矢印　·　上に戻す → 削除　·　空いた所を右クリック → 島を作る")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.45))
-            }
-            .position(x: CGFloat(world.size.x) / 2, y: CGFloat(world.size.y) - 30)
         }
         .frame(width: CGFloat(world.size.x), height: CGFloat(world.size.y), alignment: .topLeading)
         .allowsHitTesting(false)
@@ -237,13 +228,6 @@ struct OverlayView: View {
                 }
             }
 
-            if let c = world.conductor, c.sessionState == .none {
-                Text("バブルの作成や設定を頼めます")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.55))
-                    .fixedSize()
-                    .position(x: CGFloat(c.com.x + (CGFloat(c.com.x) > world.visibleRect.maxX - 240 ? -1 : 1) * (c.radius + 70)), y: CGFloat(c.com.y))
-            }
 
             ForEach(world.bodies.filter { !$0.pending.isEmpty }, id: \.id) { b in
                 let pills = world.pillLayout(b)
