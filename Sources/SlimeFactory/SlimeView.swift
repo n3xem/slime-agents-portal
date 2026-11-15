@@ -451,28 +451,40 @@ struct ContentView: View {
                 }
                 .padding(18)
 
-                if ui.openBodyId != nil || ui.editingTemplateId != nil || ui.shellOpen || ui.dirRequest != nil {
+                if ui.openBodyId != nil || ui.editingTemplateId != nil || ui.shellOpen || ui.dirRequest != nil || ui.editor != nil {
                     Color.black.opacity(0.45)
                         .contentShape(Rectangle())
                         .onTapGesture { closePanels() }
                         .transition(.opacity)
                 }
 
-                if let id = ui.openBodyId, let s = sessions.existing(id) {
-                    TerminalPanel(session: s, title: world.body(id)?.title, close: closePanels)
-                        .padding(.horizontal, max(40, geo.size.width * 0.06))
-                        .padding(.top, 100)
-                        .padding(.bottom, 40)
-                        .transition(.panel(anchor: ui.anchor))
-                        .id(id)
-                } else if let id = ui.openBodyId, let a = sessions.existingAgy(id) {
-                    AgyPanel(session: a, title: world.body(id)?.title, close: closePanels)
-                        .padding(.horizontal, max(40, geo.size.width * 0.06))
-                        .padding(.top, 100)
-                        .padding(.bottom, 40)
-                        .transition(.panel(anchor: ui.anchor))
-                        .id(id)
+                // ターミナルとファイルは並べて出せる。両方あるときはターミナルが左半分、ファイルが右半分。
+                HStack(spacing: 16) {
+                    if let id = ui.openBodyId, let s = sessions.existing(id) {
+                        TerminalPanel(session: s, title: world.body(id)?.title, close: closeTerminal)
+                            .trackPanelFrame(.terminal, in: ui)
+                            .transition(.panelIn(anchor: ui.anchor))
+                            .id(id)
+                    } else if let id = ui.openBodyId, let a = sessions.existingAgy(id) {
+                        AgyPanel(session: a, title: world.body(id)?.title, close: closeTerminal)
+                            .trackPanelFrame(.terminal, in: ui)
+                            .transition(.panelIn(anchor: ui.anchor))
+                            .id(id)
+                    } else if ui.shellOpen, let s = sessions.shell {
+                        ShellPanel(session: s, close: closeTerminal)
+                            .trackPanelFrame(.terminal, in: ui)
+                            .transition(.panelIn(anchor: .bottomTrailing))
+                    }
+                    if let doc = ui.editor {
+                        MarkdownPanel(document: doc, close: closeEditor)
+                            .trackPanelFrame(.editor, in: ui)
+                            .transition(.panelIn(anchor: .trailing))
+                            .id(ObjectIdentifier(doc))
+                    }
                 }
+                .padding(.horizontal, max(40, geo.size.width * 0.06))
+                .padding(.top, 100)
+                .padding(.bottom, 40)
 
                 if let tid = ui.editingTemplateId {
                     TemplatePanel(store: store, id: tid, close: closePanels)
@@ -506,14 +518,9 @@ struct ContentView: View {
                         .transition(.panel(anchor: ui.anchor))
                 }
 
-                if ui.shellOpen, let s = sessions.shell {
-                    ShellPanel(session: s, close: closePanels)
-                        .padding(.horizontal, max(40, geo.size.width * 0.06))
-                        .padding(.top, 100)
-                        .padding(.bottom, 40)
-                        .transition(.panel(anchor: .bottomTrailing))
-                }
+                ForEach(ui.ghosts) { PanelGhostView(ghost: $0) }
             }
+            .background(WindowReader { ui.window = $0 })
             .onAppear { wire(size: geo.size) }
             .onChange(of: geo.size) { _, s in wire(size: s) }
         }
@@ -533,9 +540,10 @@ struct ContentView: View {
     private func open(template id: String, size: CGSize) {
         world.cancelInteraction()
         if let l = world.lump(id) { ui.anchor = anchor(l.com, size) } else { ui.anchor = .top }
-        withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) {
+        changePanels {
             ui.openBodyId = nil
             ui.shellOpen = false
+            ui.editor = nil
             ui.dirRequest = nil
             ui.editingTemplateId = id
         }
@@ -544,11 +552,22 @@ struct ContentView: View {
     private func openShell() {
         world.cancelInteraction()
         _ = sessions.shellSession(workdir: store.settings.defaultWorkdir)
-        withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) {
+        changePanels {
             ui.openBodyId = nil
             ui.editingTemplateId = nil
             ui.dirRequest = nil
             ui.shellOpen = true
+        }
+    }
+
+    private func openMarkdown(_ url: URL) throws {
+        if let doc = ui.editor, doc.url == url.resolvingSymlinksInPath() { return }
+        let doc = try MarkdownDocument(url: url)
+        world.cancelInteraction()
+        changePanels {
+            ui.editingTemplateId = nil
+            ui.dirRequest = nil
+            ui.editor = doc
         }
     }
 
@@ -562,21 +581,97 @@ struct ContentView: View {
             }
             if let tid = templateId { world.lump(tid)?.kick(3) }
         }
-        withAnimation(.spring(response: 0.36, dampingFraction: 0.9)) {
+        changePanels(.spring(response: 0.36, dampingFraction: 0.9)) {
             ui.openBodyId = nil
             ui.editingTemplateId = nil
             ui.shellOpen = false
+            ui.editor = nil
             ui.dirRequest = nil
+        }
+    }
+
+    /// ターミナルだけを閉じる。ファイルを開いていれば、それが画面いっぱいに広がる。
+    private func closeTerminal() {
+        let bodyId = ui.openBodyId
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) {
+            if let id = bodyId, let b = world.body(id) {
+                b.kick(3.5)
+                for k in 0..<b.n { b.v[k] += norm(b.x[k] - b.com) * 140 }
+            }
+        }
+        changePanels(.spring(response: 0.36, dampingFraction: 0.9)) {
+            ui.openBodyId = nil
+            ui.shellOpen = false
+        }
+    }
+
+    /// ファイルだけを閉じる（保存してから閉じる）。
+    private func closeEditor() {
+        changePanels(.spring(response: 0.36, dampingFraction: 0.9)) { ui.editor = nil }
+    }
+
+    /// いま出ているターミナルとファイルのパネルを見分ける値。変わったら前のパネルは閉じたことになる。
+    private func panelIdentity(_ slot: PanelSlot) -> AnyHashable? {
+        switch slot {
+        case .terminal:
+            if let id = ui.openBodyId, sessions.existing(id) != nil || sessions.existingAgy(id) != nil { return "body-\(id)" }
+            if ui.shellOpen, sessions.shell != nil { return "shell" }
+            return nil
+        case .editor:
+            return ui.editor.map { ObjectIdentifier($0) }
+        }
+    }
+
+    /// 閉じたパネルが縮んでいく先（ウィンドウの座標）。
+    private func ghostTarget(_ slot: PanelSlot, frame: CGRect) -> CGPoint {
+        switch slot {
+        case .terminal:
+            if let id = ui.openBodyId, let b = world.body(id) {
+                let p = world.toScreen(b.com)
+                return CGPoint(x: CGFloat(p.x), y: CGFloat(p.y))
+            }
+            let size = ui.window?.contentView?.bounds.size ?? CGSize(width: frame.maxX, height: frame.maxY)
+            return CGPoint(x: size.width - 60, y: size.height - 30)
+        case .editor:
+            return CGPoint(x: frame.maxX - 30, y: frame.minY + 28)
+        }
+    }
+
+    /// パネルの出し入れをまとめて行う。ターミナルとファイルのパネルが閉じたら、写しを縮めながら消す。
+    private func changePanels(_ animation: Animation = .spring(response: 0.42, dampingFraction: 0.8), _ change: () -> Void) {
+        var closing: [(PanelSlot, AnyHashable, NSImage?, CGRect, CGPoint)] = []
+        for slot in [PanelSlot.terminal, .editor] {
+            guard let id = panelIdentity(slot), let frame = ui.panelFrames[slot] else { continue }
+            closing.append((slot, id, snapshotPanel(in: ui.window, rect: frame), frame, ghostTarget(slot, frame: frame)))
+        }
+        withAnimation(animation) { change() }
+        var added: [UUID] = []
+        for (slot, id, image, frame, target) in closing where panelIdentity(slot) != id {
+            guard let image else { continue }
+            let anchor = UnitPoint(x: (target.x - frame.minX) / frame.width, y: (target.y - frame.minY) / frame.height)
+            let g = PanelGhost(image: image, frame: frame, anchor: anchor)
+            ui.ghosts.append(g)
+            added.append(g.id)
+        }
+        guard !added.isEmpty else { return }
+        DispatchQueue.main.async {
+            withAnimation(.easeIn(duration: 0.22)) {
+                for i in ui.ghosts.indices where added.contains(ui.ghosts[i].id) { ui.ghosts[i].p = 1 }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                ui.ghosts.removeAll { added.contains($0.id) }
+            }
         }
     }
 
     private func openDirectoryPicker(_ req: DirectoryRequest, size: CGSize) {
         world.cancelInteraction()
         ui.anchor = req.point.map { anchor(world.toScreen($0), size) } ?? .bottomTrailing
-        withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) {
+        changePanels {
             ui.openBodyId = nil
             ui.editingTemplateId = nil
             ui.shellOpen = false
+            ui.editor = nil
             ui.dirRequest = req
         }
     }
@@ -588,6 +683,7 @@ struct ContentView: View {
         let bridge = FactoryBridge(world: world, sessions: sessions, store: store)
         sharedHookServer?.handler = { bridge.handle(token: $0, event: $1, body: $2, respond: $3) }
         let mcp = FactoryMCP(world: world, sessions: sessions, store: store)
+        mcp.openFile = { try openMarkdown($0) }
         sharedHookServer?.mcpHandler = { mcp.handle(token: $0, method: $1, body: $2, reply: $3) }
         sessions.locationResolver = { b in
             if let i = world.islandAt(b.com) { return i.path }
@@ -646,7 +742,7 @@ struct ContentView: View {
             world.cancelInteraction()
             world.mouse = V2(-1000, -1000)
             ui.anchor = anchor(world.toScreen(b.com), size)
-            withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) {
+            changePanels {
                 ui.editingTemplateId = nil
                 ui.shellOpen = false
                 ui.dirRequest = nil

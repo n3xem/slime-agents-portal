@@ -4,6 +4,8 @@ final class FactoryMCP {
     let world: World
     let sessions: SessionManager
     let store: TemplateStore
+    /// 画面のエディタでファイルを開く。開けなかったら理由を投げる。
+    var openFile: ((URL) throws -> Void)?
 
     init(world: World, sessions: SessionManager, store: TemplateStore) {
         self.world = world
@@ -106,6 +108,14 @@ final class FactoryMCP {
         "chrome": ["type": "string", "enum": ["default", "on", "off"], "description": "Claude in Chrome 連携。default は指定しない、on は --chrome、off は --no-chrome"],
     ]
 
+    static let openFileTool: [String: Any] = [
+        "name": "open_file",
+        "description": "Markdown ファイル（.md）を Slime Factory の画面のエディタで開く。人はそこで編集でき、編集は自動で保存される。人に「開いて」「見せて」と頼まれたときや、書いた文書を人に見てほしいときに使う。いま開ける形式は .md だけ。ほかのパネル（ターミナルなど）を開いていたら、それを閉じてエディタを出す。",
+        "inputSchema": ["type": "object",
+                        "properties": ["path": ["type": "string", "description": "ファイルの絶対パス。~ も使える"]],
+                        "required": ["path"]],
+    ]
+
     static let tools: [[String: Any]] = [
         ["name": "list_templates",
          "description": "バブルのテンプレート（画面上部のスライム）の一覧と、それぞれの既定の設定を返す。",
@@ -152,6 +162,7 @@ final class FactoryMCP {
         ["name": "start_bubble",
          "description": "バブルの Claude Code セッションを起動する（画面にターミナルは開かない）。",
          "inputSchema": ["type": "object", "properties": ["name": ["type": "string"]], "required": ["name"]]],
+        openFileTool,
     ]
 
     static let bubbleTools: [[String: Any]] = [
@@ -163,9 +174,32 @@ final class FactoryMCP {
                              "summary": ["type": "string", "description": "画面に出す一行の要約。need_decision なら何を決めてほしいか"],
                          ],
                          "required": ["state", "summary"]]],
+        openFileTool,
     ]
 
+    private func open(_ args: [String: Any]) throws -> Any {
+        guard let raw = string(args, "path"), !raw.isEmpty else { throw ToolError(message: "path を指定してください。") }
+        let path = (raw as NSString).expandingTildeInPath
+        guard path.hasPrefix("/") else { throw ToolError(message: "path は絶対パスで指定してください（~ も使えます）。") }
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        guard ["md", "markdown"].contains(url.pathExtension.lowercased()) else {
+            throw ToolError(message: "いま開けるのは Markdown（.md）だけです。")
+        }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), !isDir.boolValue else {
+            throw ToolError(message: "ファイル「\(raw)」がありません。")
+        }
+        guard let openFile else { throw ToolError(message: "画面の準備ができていないため開けませんでした。") }
+        do {
+            try openFile(url)
+        } catch {
+            throw ToolError(message: "「\(url.lastPathComponent)」を開けませんでした: \(error.localizedDescription)")
+        }
+        return "画面のエディタで開きました: \(url.path)"
+    }
+
     private func callBubble(_ b: SoftBody, _ name: String, _ args: [String: Any]) throws -> Any {
+        if name == "open_file" { return try open(args) }
         guard name == "report_status" else { throw ToolError(message: "不明なツール: \(name)") }
         let summary = FactoryBridge.firstLine(string(args, "summary") ?? "", limit: 80)
         let kind: BadgeKind
@@ -476,6 +510,8 @@ final class FactoryMCP {
             sessions.start(b, store: store)
             b.kick(3)
             return describe(b)
+        case "open_file":
+            return try open(args)
         default:
             throw ToolError(message: "不明なツール: \(name)")
         }

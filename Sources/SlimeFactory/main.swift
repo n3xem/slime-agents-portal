@@ -4,6 +4,9 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        if let url = Bundle.module.url(forResource: "AppIcon", withExtension: "png"), let icon = NSImage(contentsOf: url) {
+            NSApp.applicationIconImage = icon
+        }
         NSApp.activate(ignoringOtherApps: true)
         NSApp.appearance = NSAppearance(named: .darkAqua)
         ShellEnvironment.prefetch()
@@ -13,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationWillTerminate(_ notification: Notification) {
+        _ = MarkdownDocument.current?.close()
         sharedSaveCanvas?()
         sharedSessions.terminateAll()
     }
@@ -44,6 +48,14 @@ if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
     MainActor.assumeIsolated {
         _ = NSApplication.shared
         SnapshotRunner(outDir: URL(fileURLWithPath: args[i + 1])).run()
+    }
+    exit(0)
+}
+
+if let i = args.firstIndex(of: "--icon"), i + 1 < args.count {
+    MainActor.assumeIsolated {
+        _ = NSApplication.shared
+        IconRenderer.run(out: URL(fileURLWithPath: args[i + 1]))
     }
     exit(0)
 }
@@ -119,6 +131,14 @@ if let i = args.firstIndex(of: "--panel-snapshot"), i + 1 < args.count {
         render(TerminalPanel(session: session, close: {}).padding(30), size: NSSize(width: 1100, height: 640),
                name: "terminal_panel", wait: 7)
         render(SettingsView(store: store), size: NSSize(width: 900, height: 640), name: "settings", wait: 1)
+        let md = out.appendingPathComponent("sample.md")
+        try? "# Slime Factory メモ\n\n- 実装とレビューのバブルをつなぐ\n- AGENTS.md を見直す\n\n```sh\nswift build -c release --build-system native\n```\n"
+            .write(to: md, atomically: true, encoding: .utf8)
+        if let doc = try? MarkdownDocument(url: md) {
+            render(MarkdownPanel(document: doc, close: {}).padding(30), size: NSSize(width: 1100, height: 560), name: "markdown_panel", wait: 0.6)
+            _ = doc.close()
+        }
+
         let shell = ShellSession(workdir: store.settings.defaultWorkdir)
         shell.start()
         render(ShellPanel(session: shell, close: {}).padding(30), size: NSSize(width: 1100, height: 640),

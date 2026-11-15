@@ -12,6 +12,7 @@ let package = Package(
             name: "SlimeFactory",
             dependencies: [.product(name: "SwiftTerm", package: "SwiftTerm")],
             path: "Sources/SlimeFactory",
+            resources: [.copy("Resources/AppIcon.png")],
             swiftSettings: [.unsafeFlags(["-Ounchecked"])]
         )
     ]

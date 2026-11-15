@@ -6,7 +6,35 @@ final class AppState: ObservableObject {
     @Published var editingTemplateId: String?
     @Published var shellOpen = false
     @Published var dirRequest: DirectoryRequest?
+    /// 開いている Markdown。差し替えたり閉じたりしたら、前の文書を保存しきる。
+    @Published var editor: MarkdownDocument? {
+        didSet {
+            guard let old = oldValue, old !== editor else { return }
+            let message: String? = MainActor.assumeIsolated {
+                if old.saveState == .conflict {
+                    let ask = NSAlert()
+                    ask.messageText = "「\(old.url.lastPathComponent)」はほかで変更されています"
+                    ask.informativeText = "こちらの変更はまだ保存していません。閉じる前に、どちらの内容を残すか選んでください。"
+                    ask.addButton(withTitle: "こちらの内容で上書き")
+                    ask.addButton(withTitle: "外の内容を残す")
+                    ask.alertStyle = .warning
+                    if ask.runModal() == .alertFirstButtonReturn { old.overwrite() } else { old.reloadFromDisk() }
+                }
+                return old.close()
+            }
+            guard let message else { return }
+            let alert = NSAlert()
+            alert.messageText = "「\(old.url.lastPathComponent)」を保存できませんでした"
+            alert.informativeText = message
+            alert.alertStyle = .warning
+            alert.runModal()
+        }
+    }
     @Published var anchor: UnitPoint = .center
+    /// 閉じかけのパネルの写し。縮みながら消える。
+    @Published var ghosts: [PanelGhost] = []
+    var panelFrames: [PanelSlot: CGRect] = [:]
+    weak var window: NSWindow?
 }
 
 extension TemplateModel {
@@ -73,6 +101,7 @@ struct PanelChrome<Header: View, Content: View>: View {
 
 struct CloseButton: View {
     let action: () -> Void
+    var help = "閉じる（セッションは動き続けます）"
     @State private var hover = false
 
     var body: some View {
@@ -85,7 +114,7 @@ struct CloseButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
-        .help("閉じる（セッションは動き続けます）")
+        .help(help)
     }
 }
 
