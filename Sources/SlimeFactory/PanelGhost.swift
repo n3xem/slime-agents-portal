@@ -77,10 +77,41 @@ struct WindowReader: NSViewRepresentable {
 
 @MainActor
 func snapshotPanel(in window: NSWindow?, rect: CGRect) -> NSImage? {
-    guard let view = window?.contentView, rect.width > 1, rect.height > 1 else { return nil }
-    let r = view.isFlipped ? rect : CGRect(x: rect.minX, y: view.bounds.height - rect.maxY, width: rect.width, height: rect.height)
-    guard let rep = view.bitmapImageRepForCachingDisplay(in: r) else { return nil }
-    view.cacheDisplay(in: r, to: rep)
+    guard let root = window?.contentView, rect.width > 1, rect.height > 1 else { return nil }
+    var parts: [(NSView, CGRect)] = []
+    func walk(_ v: NSView) {
+        for s in v.subviews where !s.isHidden {
+            if s is TerminalContainer || s is NSScrollView {
+                let r = s.convert(s.bounds, to: root)
+                let top = root.isFlipped ? r : CGRect(x: r.minX, y: root.bounds.height - r.maxY, width: r.width, height: r.height)
+                if top.intersects(rect) { parts.append((s, top)) }
+            } else {
+                walk(s)
+            }
+        }
+    }
+    walk(root)
+    let scale = window?.backingScaleFactor ?? 2
+    guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(rect.width * scale), pixelsHigh: Int(rect.height * scale),
+                                     bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                     colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+    rep.size = rect.size
+    guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = ctx
+    let plate = NSBezierPath(roundedRect: NSRect(origin: .zero, size: rect.size).insetBy(dx: 0.75, dy: 0.75), xRadius: 18, yRadius: 18)
+    NSColor(red: 0.055, green: 0.06, blue: 0.085, alpha: 1).setFill()
+    plate.fill()
+    NSColor(white: 1, alpha: 0.16).setStroke()
+    plate.lineWidth = 1.5
+    plate.stroke()
+    for (v, r) in parts {
+        guard let part = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { continue }
+        v.cacheDisplay(in: v.bounds, to: part)
+        part.draw(in: NSRect(x: r.minX - rect.minX, y: rect.maxY - r.maxY, width: r.width, height: r.height),
+                  from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
+    }
+    NSGraphicsContext.restoreGraphicsState()
     let image = NSImage(size: rect.size)
     image.addRepresentation(rep)
     return image
