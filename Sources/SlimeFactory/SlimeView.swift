@@ -34,11 +34,25 @@ final class SlimeMTKView: MTKView, MTKViewDelegate {
         self.renderer = Renderer(device: device, format: .bgra8Unorm)
         super.init(frame: .zero, device: device)
         colorPixelFormat = .bgra8Unorm
-        preferredFramesPerSecond = 120
+        preferredFramesPerSecond = 60
         delegate = self
     }
 
     required init(coder: NSCoder) { fatalError() }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: nil)
+        guard let window else { return }
+        NotificationCenter.default.addObserver(self, selector: #selector(occlusionChanged),
+                                               name: NSWindow.didChangeOcclusionStateNotification, object: window)
+        occlusionChanged()
+    }
+
+    @objc private func occlusionChanged() {
+        let visible = window?.occlusionState.contains(.visible) ?? false
+        preferredFramesPerSecond = visible ? 60 : 20
+    }
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
