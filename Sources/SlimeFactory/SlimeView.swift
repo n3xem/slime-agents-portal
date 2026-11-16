@@ -425,8 +425,10 @@ struct ContentView: View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
                 SlimeCanvas(world: world, menus: menuBuilder)
-                FrameSyncedOverlay(world: world, clock: sharedFrameClock)
-                    .allowsHitTesting(false)
+                    .overlay(alignment: .topLeading) {
+                        FrameSyncedOverlay(world: world, clock: sharedFrameClock)
+                            .allowsHitTesting(false)
+                    }
 
                 VStack {
                     Spacer()
@@ -534,12 +536,14 @@ struct ContentView: View {
 
                 ForEach(ui.ghosts) { PanelGhostView(ghost: $0) }
             }
-            .background(WindowReader { ui.window = $0 })
+            .background(WindowReader { w in
+                ui.window = w
+                w?.contentMinSize = NSSize(width: 760, height: 520)
+            })
             .onAppear { wire(size: geo.size) }
             .onChange(of: geo.size) { _, s in wire(size: s) }
         }
         .ignoresSafeArea()
-        .frame(minWidth: 1100, minHeight: 720)
         .background(Color(red: 0.05, green: 0.055, blue: 0.08))
         .onReceive(store.$templates) { list in
             world.syncTemplates(list.map(\.runtime))
