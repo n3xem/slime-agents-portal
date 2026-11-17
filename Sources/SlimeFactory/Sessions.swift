@@ -23,7 +23,18 @@ enum ShellEnvironment {
     private static var cached: [String: String]?
     private static let lock = NSLock()
 
-    private static func capture(shell: String, base: [String: String]) -> [String: String]? {
+    private static func discardUntilClosed(_ pipe: Pipe) {
+        let handle = pipe.fileHandleForReading
+        let fd = handle.fileDescriptor
+        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) & ~O_NONBLOCK)
+        handle.readabilityHandler = { h in
+            guard h.availableData.isEmpty else { return }
+            h.readabilityHandler = nil
+            _ = pipe
+        }
+    }
+
+    private static func capture(shell: String, base: [String: String], until deadline: Date) -> [String: String]? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: shell)
         p.arguments = ["-l", "-i", "-c", "env -0"]
@@ -33,8 +44,29 @@ enum ShellEnvironment {
         p.standardError = FileHandle.nullDevice
         p.standardInput = FileHandle.nullDevice
         guard (try? p.run()) != nil else { return nil }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
+        let fd = out.fileHandleForReading.fileDescriptor
+        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+        var data = Data()
+        var buf = [UInt8](repeating: 0, count: 65536)
+        while true {
+            let exited = !p.isRunning
+            let n = read(fd, &buf, buf.count)
+            if n > 0 {
+                data.append(buf, count: n)
+                continue
+            }
+            if n == 0 { break }
+            if exited {
+                discardUntilClosed(out)
+                break
+            }
+            if Date() > deadline {
+                p.terminate()
+                discardUntilClosed(out)
+                return nil
+            }
+            usleep(10_000)
+        }
         var env: [String: String] = [:]
         for entry in data.split(separator: 0) {
             let str = String(decoding: entry, as: UTF8.self)
@@ -55,7 +87,8 @@ enum ShellEnvironment {
         for key in ["HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "SSH_AUTH_SOCK", "__CF_USER_TEXT_ENCODING"] {
             if let v = parent[key] { base[key] = v }
         }
-        if let env = capture(shell: shell, base: base) ?? capture(shell: shell, base: base) {
+        let deadline = Date().addingTimeInterval(5)
+        if let env = capture(shell: shell, base: base, until: deadline) ?? capture(shell: shell, base: base, until: deadline) {
             var merged = base
             merged.merge(env) { _, new in new }
             cached = merged
@@ -64,6 +97,7 @@ enum ShellEnvironment {
         var fallback = base
         let home = parent["HOME"] ?? NSHomeDirectory()
         fallback["PATH"] = ["\(home)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", base["PATH"]!].joined(separator: ":")
+        cached = fallback
         return fallback
     }
 

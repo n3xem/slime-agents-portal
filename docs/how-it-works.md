@@ -8,6 +8,7 @@
 - セッションは `claude --name <スライム名> --session-id <UUID> --append-system-prompt <AGENTS.md の内容>` で起動する
 - 起動時の AGENTS.md は `sessions/<UUID>/AGENTS.md` にコピーされ、あとでテンプレートを編集しても起動済みのセッションには影響しない
 - 環境変数はログインシェル（`$SHELL -l -i`）から一度だけ読み取り、`claude` はシェルを介さずに直接起動する
+- ログインシェルの読み取りは、シェルのプロセスが終わった時点で終える。`.zshrc` が裏で起動したプロセスが出力を開いたままでも待たず、そのプロセスの出力は閉じられるまで裏で受け取って捨てる。シェルが 5 秒で終わらなければ止めて、`PATH` に `~/.local/bin`・`/opt/homebrew/bin`・`/usr/local/bin` を足した値を使う
 
 ## 保存
 
