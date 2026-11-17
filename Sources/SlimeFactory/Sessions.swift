@@ -231,32 +231,34 @@ final class ClaudeSession: NSObject, LocalProcessTerminalViewDelegate, Observabl
             return """
             # Slime Factory の管理セッション
 
-            このセッションは Slime Factory の「管理」セッションです。Slime Factory は、Claude Code のセッションをバブルとして画面に並べ、矢印でつないで作業を引き継がせるアプリです。人の指示に従って、バブルを作り、設定し、矢印でつなぎます。
+            このセッションは Slime Factory の「管理」セッションです。Slime Factory は、Claude Code のセッションをスライムとして画面に並べ、矢印でつないで作業を引き継がせるアプリです。人の指示に従って、スライムを作り、設定し、矢印でつなぎます。
 
-            - バブルの操作には slime-factory MCP サーバーのツール（list_templates、list_islands、create_island、list_bubbles、create_bubble、configure_bubble、connect_bubbles、disconnect_bubbles、start_bubble）を使います。
+            - スライムの操作には slime-factory MCP サーバーのツール（list_templates、list_islands、create_island、list_bubbles、create_bubble、configure_bubble、connect_bubbles、disconnect_bubbles、start_bubble）を使います。
             - 人に Markdown ファイルを「開いて」と頼まれたときや、書いた文書を見てほしいときは、slime-factory MCP サーバーの open_file に絶対パスを渡して、Slime Factory の画面のエディタで開きます。
-            - 画面上の「島」はリポジトリのディレクトリを表します。島の中のバブルは、その島のディレクトリで起動します。リポジトリごとに島を作り、バブルはその島に置きます。
-            - バブルの作業ディレクトリは、人の指示とリポジトリの場所から決めます。場所がわからないときは、手元を調べるか人に聞きます。
-            - 同じリポジトリを並行して編集するバブルが複数あるときは、worktree を使うかを検討します。
+            - 定期的に見回っていて人に知らせたいことを見つけたときは、slime-factory MCP サーバーの say に短い文を渡して、画面の管理スライムの横に吹き出しを出します。
+            - 画面上の「島」はリポジトリのディレクトリを表します。島の中のスライムは、その島のディレクトリで起動します。リポジトリごとに島を作り、スライムはその島に置きます。
+            - スライムの作業ディレクトリは、人の指示とリポジトリの場所から決めます。場所がわからないときは、手元を調べるか人に聞きます。
+            - 同じリポジトリを並行して編集するスライムが複数あるときは、worktree を使うかを検討します。
             - 作業ディレクトリ・サンドボックス・権限モード・worktree は、セッションの起動前にしか変えられません。
-            - バブルに作業を頼むときは、SendMessage でバブルの名前を宛先にして送ります。メッセージには目的、成果物の場所、依頼内容を書きます。起動していないバブルは、送信時に自動で起動します。
-            - バブルの削除は人が行います。
-            - テンプレートには Claude Code と Antigravity CLI（agy）のエンジンがあります（list_templates の engine）。agy のバブルは人が端末で直接使うもので、SendMessage では送れず、矢印でもつなげません。
+            - スライムに作業を頼むときは、SendMessage でスライムの名前を宛先にして送ります。メッセージには目的、成果物の場所、依頼内容を書きます。起動していないスライムは、送信時に自動で起動します。
+            - スライムの削除は人が行います。
+            - テンプレートには Claude Code と Antigravity CLI（agy）のエンジンがあります（list_templates の engine）。agy のスライムは人が端末で直接使うもので、SendMessage では送れず、矢印でもつなげません。
             """
         }
         return """
         # Slime Factory
 
-        このセッションは Slime Factory のバブル「\(name)」（テンプレート: \(template.name)）で動いています。Slime Factory は、矢印でつないだ Claude Code のセッション同士で作業を引き継ぐためのアプリです。
+        このセッションは Slime Factory のスライム「\(name)」（テンプレート: \(template.name)）で動いています。Slime Factory は、矢印でつないだ Claude Code のセッション同士で作業を引き継ぐためのアプリです。
 
-        - 他のバブルへの引き継ぎには SendMessage を使います。宛先はバブルの名前です。
-        - 送れるのは、このバブルから矢印が出ている相手だけです。現在の送り先と受け取り元は、プロンプトごとに追加のコンテキストとして示されます。
+        - 他のスライムへの引き継ぎには SendMessage を使います。宛先はスライムの名前です。
+        - 送れるのは、このスライムから矢印が出ている相手だけです。現在の送り先と受け取り元は、プロンプトごとに追加のコンテキストとして示されます。
         - 矢印のない相手への送信はフックが拒否します。矢印のある相手への送信も、人が承認するまで保留されることがあります。拒否された場合は、示された理由に従います。
         - 引き継ぎのメッセージには、目的、成果物の場所（ブランチ名、PR の URL、ファイルのパスなど）、相手にしてほしいことを書きます。差分や長い出力は貼らずに、場所を示します。
         - 受け取る側はこちらの会話履歴を見られません。必要な前提はメッセージに書きます。
         - ターンを終える前に、slime-factory MCP サーバーの report_status で状態を報告します。頼まれた作業が終わったら done、人に方針の選択や前提の確認をしてほしいときは need_decision、権限や環境の問題で進められないときは blocked です。summary には画面に出す一行の要約を書きます。
         - 人に Markdown ファイルを「開いて」と頼まれたときや、書いた文書を見てほしいときは、slime-factory MCP サーバーの open_file に絶対パスを渡して、Slime Factory の画面のエディタで開きます。
-        \(config.worktree ? "- このバブルは専用の git worktree で動いています。変更を引き継ぐときは、先にコミットし、ブランチ名を伝えます。worktree 同士は同じリポジトリを共有しているので、相手は別の worktree からでもそのブランチを git で読めます（同じブランチを 2 つの worktree で同時にチェックアウトすることはできません）。" : "- 受け取ったブランチが別の worktree にあっても、同じリポジトリなら git でそのブランチを読めます。")
+        - 定期的に見回っていて人に知らせたいこと（Slack に返事をしていない依頼がある、など）を見つけたときは、slime-factory MCP サーバーの say に短い文を渡して、画面のこのスライムの横に吹き出しを出します。
+        \(config.worktree ? "- このスライムは専用の git worktree で動いています。変更を引き継ぐときは、先にコミットし、ブランチ名を伝えます。worktree 同士は同じリポジトリを共有しているので、相手は別の worktree からでもそのブランチを git で読めます（同じブランチを 2 つの worktree で同時にチェックアウトすることはできません）。" : "- 受け取ったブランチが別の worktree にあっても、同じリポジトリなら git でそのブランチを読めます。")
         """
     }
 

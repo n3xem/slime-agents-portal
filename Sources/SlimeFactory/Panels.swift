@@ -470,7 +470,7 @@ struct TemplateEditorView: View {
                         EngineMark(engine: t.engine ?? .claude, size: 22)
                     }
                     Text((t.engine ?? .claude) == .agy
-                         ? "Antigravity CLI を端末で動かします。Claude Code のバブルとは矢印でつなげず、管理セッションからもメッセージは送れません。"
+                         ? "Antigravity CLI を端末で動かします。Claude Code のスライムとは矢印でつなげず、管理セッションからもメッセージは送れません。"
                          : "Claude Code を端末で動かします。")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
@@ -478,7 +478,7 @@ struct TemplateEditorView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("起動の設定（バブルごとに右クリックで上書きできます）").font(.system(size: 12, weight: .semibold))
+                    Text("起動の設定（スライムごとに右クリックで上書きできます）").font(.system(size: 12, weight: .semibold))
                     if (t.engine ?? .claude) == .agy {
                         HStack(spacing: 16) {
                             Toggle("サンドボックス（--sandbox）", isOn: agySandboxBinding)
@@ -541,8 +541,8 @@ struct TemplateEditorView: View {
                     HStack(alignment: .firstTextBaseline) {
                         Text("AGENTS.md").font(.system(size: 13, weight: .heavy, design: .monospaced))
                         Text((t.engine ?? .claude) == .agy
-                             ? "新しい会話を始めるときに、最初の依頼（agy -i）として渡します。会話を続けているバブルには反映されません。"
-                             : "バブルのセッションを起動するときに --append-system-prompt で渡します。起動済みのセッションには反映されません。")
+                             ? "新しい会話を始めるときに、最初の依頼（agy -i）として渡します。会話を続けているスライムには反映されません。"
+                             : "スライムのセッションを起動するときに --append-system-prompt で渡します。起動済みのセッションには反映されません。")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }

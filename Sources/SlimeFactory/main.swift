@@ -132,7 +132,7 @@ if let i = args.firstIndex(of: "--panel-snapshot"), i + 1 < args.count {
                name: "terminal_panel", wait: 7)
         render(SettingsView(store: store), size: NSSize(width: 900, height: 640), name: "settings", wait: 1)
         let md = out.appendingPathComponent("sample.md")
-        try? "# Slime Factory メモ\n\n- 実装とレビューのバブルをつなぐ\n- AGENTS.md を見直す\n\n```sh\nswift build -c release --build-system native\n```\n"
+        try? "# Slime Factory メモ\n\n- 実装とレビューのスライムをつなぐ\n- AGENTS.md を見直す\n\n```sh\nswift build -c release --build-system native\n```\n"
             .write(to: md, atomically: true, encoding: .utf8)
         if let doc = try? MarkdownDocument(url: md) {
             render(MarkdownPanel(document: doc, close: {}).padding(30), size: NSSize(width: 1100, height: 560), name: "markdown_panel", wait: 0.6)

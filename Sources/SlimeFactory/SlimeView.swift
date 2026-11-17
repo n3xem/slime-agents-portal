@@ -111,7 +111,7 @@ final class SlimeMTKView: MTKView, MTKViewDelegate {
             configMenu?(b, m)
             if !b.isConductor {
                 m.addItem(.separator())
-                m.addItem(withTitle: "スライムに戻す", action: #selector(menuRemove), keyEquivalent: "").target = self
+                m.addItem(withTitle: "テンプレートのスライムに戻す", action: #selector(menuRemove), keyEquivalent: "").target = self
             }
             return m
         }
@@ -131,7 +131,7 @@ final class SlimeMTKView: MTKView, MTKViewDelegate {
     @objc private func menuRename() {
         guard let b = menuBody else { return }
         let alert = NSAlert()
-        alert.messageText = "バブルの名前"
+        alert.messageText = "スライムの名前"
         alert.informativeText = "画面に表示する名前です。メッセージの宛先（\(b.name)）は変わりません。空にすると、次の依頼から自動で付けます。"
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
         field.stringValue = b.title ?? ""
@@ -288,7 +288,7 @@ final class BubbleMenuBuilder: NSObject {
             reveal.representedObject = island.path
             m.addItem(reveal)
             m.addItem(.separator())
-            let del = NSMenuItem(title: "島を消す（バブルは残る）", action: #selector(deleteIsland(_:)), keyEquivalent: "")
+            let del = NSMenuItem(title: "島を消す（スライムは残る）", action: #selector(deleteIsland(_:)), keyEquivalent: "")
             del.target = self
             del.representedObject = island.id
             m.addItem(del)
@@ -755,6 +755,7 @@ struct ContentView: View {
             try? p.run()
         }
         world.onOpenBody = { b in
+            b.speech = nil
             if let badge = b.badge, !badge.kind.needsAttention { world.clearBadge(b) }
             guard sessions.start(b, store: store) else { return }
             world.cancelInteraction()
@@ -773,7 +774,7 @@ struct ContentView: View {
             DispatchQueue.main.async {
                 let alert = NSAlert()
                 alert.messageText = "「\(b.name)」を削除しますか？"
-                alert.informativeText = "このバブルで動いている Claude Code のセッションを終了します。"
+                alert.informativeText = "このスライムで動いている Claude Code のセッションを終了します。"
                 alert.addButton(withTitle: "セッションを終了して削除")
                 alert.addButton(withTitle: "キャンセル")
                 alert.alertStyle = .warning

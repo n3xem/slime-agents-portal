@@ -116,58 +116,67 @@ final class FactoryMCP {
                         "required": ["path"]],
     ]
 
+    static let sayTool: [String: Any] = [
+        "name": "say",
+        "description": "Slime Factory の画面で、このスライムの横に短い吹き出しを出して人に呼びかける。定期的に見回っていて、人に知らせたいこと（Slack に返事をしていない依頼がある、など）を見つけたときに使う。作業の状態の報告には report_status を使う。新しく出すと前の吹き出しは置き換わり、人がこのスライムを開くと消える。text を空にすると消す。",
+        "inputSchema": ["type": "object",
+                        "properties": ["text": ["type": "string", "description": "吹き出しに出す短い文。80 文字まで。改行より後は出ない"]],
+                        "required": ["text"]],
+    ]
+
     static let tools: [[String: Any]] = [
         ["name": "list_templates",
-         "description": "バブルのテンプレート（画面上部のスライム）の一覧と、それぞれの既定の設定を返す。",
+         "description": "テンプレート（画面上部に並ぶテンプレートのスライム）の一覧と、それぞれの既定の設定を返す。",
          "inputSchema": ["type": "object", "properties": [String: Any]()]],
         ["name": "list_bubbles",
-         "description": "画面上のバブルの一覧を返す。名前、テンプレート、作業ディレクトリ、サンドボックス、権限モード、worktree、セッションの状態、いまの作業、矢印の送り先と受け取り元を含む。",
+         "description": "画面上のスライムの一覧を返す。名前、テンプレート、作業ディレクトリ、サンドボックス、権限モード、worktree、セッションの状態、いまの作業、矢印の送り先と受け取り元を含む。",
          "inputSchema": ["type": "object", "properties": [String: Any]()]],
         ["name": "list_islands",
-         "description": "画面上の島（リポジトリのディレクトリを表す領域）の一覧と、中にあるバブルを返す。",
+         "description": "画面上の島（リポジトリのディレクトリを表す領域）の一覧と、中にあるスライムを返す。",
          "inputSchema": ["type": "object", "properties": [String: Any]()]],
         ["name": "create_island",
-         "description": "ディレクトリの島を作る。島に置いたバブルは、その島のディレクトリで起動する。同じディレクトリの島があればそれを返す。",
+         "description": "ディレクトリの島を作る。島に置いたスライムは、その島のディレクトリで起動する。同じディレクトリの島があればそれを返す。",
          "inputSchema": ["type": "object",
                          "properties": ["path": ["type": "string", "description": "ディレクトリの絶対パス。~ も使える"]],
                          "required": ["path"]]],
         ["name": "create_bubble",
-         "description": "テンプレートのスライムから新しいバブルを作る。island（島のパスか名前）か workdir を指定すると、その島の中に置く（workdir に島がなければ島も作る）。省略した設定はテンプレートの既定に従う。start が true なら Claude Code のセッションもすぐ起動する。サンドボックス・権限モード・Chrome 連携をテンプレートの既定より緩める指定は、人が画面で承認するまで反映されない。",
+         "description": "テンプレートのスライムから新しいスライムを作る。island（島のパスか名前）か workdir を指定すると、その島の中に置く（workdir に島がなければ島も作る）。省略した設定はテンプレートの既定に従う。start が true なら Claude Code のセッションもすぐ起動する。サンドボックス・権限モード・Chrome 連携をテンプレートの既定より緩める指定は、人が画面で承認するまで反映されない。",
          "inputSchema": ["type": "object",
                          "properties": configProps.merging([
                              "template": ["type": "string", "description": "テンプレートの id または名前"],
                              "island": ["type": "string", "description": "置く島のパスまたは名前"],
-                             "name": ["type": "string", "description": "バブルの名前。SendMessage の宛先になる。省略時はテンプレート名"],
+                             "name": ["type": "string", "description": "スライムの名前。SendMessage の宛先になる。省略時はテンプレート名"],
                              "start": ["type": "boolean", "description": "true ならセッションをすぐ起動する"],
                          ]) { a, _ in a },
                          "required": ["template"]]],
         ["name": "configure_bubble",
-         "description": "バブルの作業ディレクトリ・サンドボックス・権限モード・worktree を変える。island を指定すると、バブルをその島へ移す。セッションの起動後は、サンドボックスと権限モードだけを restart: true で再起動して反映できる。サンドボックス・権限モード・Chrome 連携をいまより緩める変更は、人が画面で承認するまで反映されない。",
+         "description": "スライムの作業ディレクトリ・サンドボックス・権限モード・worktree を変える。island を指定すると、スライムをその島へ移す。セッションの起動後は、サンドボックスと権限モードだけを restart: true で再起動して反映できる。サンドボックス・権限モード・Chrome 連携をいまより緩める変更は、人が画面で承認するまで反映されない。",
          "inputSchema": ["type": "object",
                          "properties": configProps.merging([
                              "name": ["type": "string"],
-                             "island": ["type": "string", "description": "バブルを移す島のパスまたは名前。起動前なら作業ディレクトリもその島にする"],
+                             "island": ["type": "string", "description": "スライムを移す島のパスまたは名前。起動前なら作業ディレクトリもその島にする"],
                              "restart": ["type": "boolean", "description": "起動済みのセッションを再起動して反映する（会話は --resume で引き継ぐ）"],
                          ]) { a, _ in a },
                          "required": ["name"]]],
         ["name": "connect_bubbles",
-         "description": "バブルからバブルへ矢印を引く。矢印の向きにだけ SendMessage で送れる。auto_send が true なら人の承認なしで送れる。auto_send を true にする変更は、人が画面で承認するまで反映されない。",
+         "description": "スライムからスライムへ矢印を引く。矢印の向きにだけ SendMessage で送れる。auto_send が true なら人の承認なしで送れる。auto_send を true にする変更は、人が画面で承認するまで反映されない。",
          "inputSchema": ["type": "object",
                          "properties": ["from": ["type": "string"], "to": ["type": "string"], "auto_send": ["type": "boolean"]],
                          "required": ["from", "to"]]],
         ["name": "disconnect_bubbles",
-         "description": "バブル間の矢印を外す。",
+         "description": "スライム間の矢印を外す。",
          "inputSchema": ["type": "object", "properties": ["from": ["type": "string"], "to": ["type": "string"]],
                          "required": ["from", "to"]]],
         ["name": "start_bubble",
-         "description": "バブルの Claude Code セッションを起動する（画面にターミナルは開かない）。",
+         "description": "スライムの Claude Code セッションを起動する（画面にターミナルは開かない）。",
          "inputSchema": ["type": "object", "properties": ["name": ["type": "string"]], "required": ["name"]]],
         openFileTool,
+        sayTool,
     ]
 
     static let bubbleTools: [[String: Any]] = [
         ["name": "report_status",
-         "description": "このバブルの状態を Slime Factory の画面に表示する。ターンを終える前に必ず呼ぶ。done: 頼まれた作業が終わった / need_decision: 人に方針の選択や前提の確認をしてほしい / blocked: 権限や環境の問題で進められない。",
+         "description": "このスライムの状態を Slime Factory の画面に表示する。ターンを終える前に必ず呼ぶ。done: 頼まれた作業が終わった / need_decision: 人に方針の選択や前提の確認をしてほしい / blocked: 権限や環境の問題で進められない。",
          "inputSchema": ["type": "object",
                          "properties": [
                              "state": ["type": "string", "enum": ["done", "need_decision", "blocked"]],
@@ -175,6 +184,7 @@ final class FactoryMCP {
                          ],
                          "required": ["state", "summary"]]],
         openFileTool,
+        sayTool,
     ]
 
     private func open(_ args: [String: Any]) throws -> Any {
@@ -200,6 +210,7 @@ final class FactoryMCP {
 
     private func callBubble(_ b: SoftBody, _ name: String, _ args: [String: Any]) throws -> Any {
         if name == "open_file" { return try open(args) }
+        if name == "say" { return say(b, args) }
         guard name == "report_status" else { throw ToolError(message: "不明なツール: \(name)") }
         let summary = FactoryBridge.firstLine(string(args, "summary") ?? "", limit: 80)
         let kind: BadgeKind
@@ -222,7 +233,7 @@ final class FactoryMCP {
 
     private func bubble(_ name: String?) throws -> SoftBody {
         guard let name, let b = world.bodyNamed(name), !b.isConductor else {
-            throw ToolError(message: "バブル「\(name ?? "")」が見つかりません。list_bubbles で名前を確認してください。")
+            throw ToolError(message: "スライム「\(name ?? "")」が見つかりません。list_bubbles で名前を確認してください。")
         }
         return b
     }
@@ -404,7 +415,7 @@ final class FactoryMCP {
                 island = world.islandFor(path: path) ?? world.addIsland(path: path)
             }
             guard let b = world.spawnFromLump(templateId: tpl.id, name: string(args, "name"), in: island) else {
-                throw ToolError(message: "バブルを作れませんでした。")
+                throw ToolError(message: "スライムを作れませんでした。")
             }
             if let island { b.config.workdir = island.path }
             var rest = args
@@ -482,9 +493,9 @@ final class FactoryMCP {
             return describe(b)
         case "connect_bubbles":
             let a = try bubble(string(args, "from")), t = try bubble(string(args, "to"))
-            guard a.id != t.id else { throw ToolError(message: "同じバブル同士はつなげません。") }
+            guard a.id != t.id else { throw ToolError(message: "同じスライム同士はつなげません。") }
             guard a.engine == .claude, t.engine == .claude else {
-                throw ToolError(message: "Antigravity CLI のバブルは矢印でつなげません。")
+                throw ToolError(message: "Antigravity CLI のスライムは矢印でつなげません。")
             }
             let r = world.rope(from: a.id, to: t.id) ?? world.connect(a, t)
             t.kick(3)
@@ -512,8 +523,23 @@ final class FactoryMCP {
             return describe(b)
         case "open_file":
             return try open(args)
+        case "say":
+            guard let c = world.conductor else { throw ToolError(message: "管理スライムが見つかりません。") }
+            return say(c, args)
         default:
             throw ToolError(message: "不明なツール: \(name)")
         }
+    }
+
+    private func say(_ b: SoftBody, _ args: [String: Any]) -> Any {
+        let text = FactoryBridge.firstLine(string(args, "text") ?? "", limit: 80)
+        guard !text.isEmpty else {
+            b.speech = nil
+            return "吹き出しを消しました。"
+        }
+        b.speech = Speech(text: text, time: world.time)
+        b.glow = 1
+        b.kick(2)
+        return "吹き出しを出しました: \(text)"
     }
 }

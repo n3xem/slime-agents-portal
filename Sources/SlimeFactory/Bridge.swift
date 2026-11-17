@@ -11,7 +11,34 @@ final class FactoryBridge {
         self.store = store
     }
 
+    private func refreshContext(token: String, transcript: String) {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let tokens = Self.contextTokens(transcript: transcript) else { return }
+            DispatchQueue.main.async {
+                guard let self, let id = self.sessions.bodyId(forToken: token), let b = self.world.body(id) else { return }
+                b.contextTokens = tokens
+            }
+        }
+    }
+
+    static func contextTokens(transcript path: String) -> Int? {
+        guard let fh = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? fh.close() }
+        let end = (try? fh.seekToEnd()) ?? 0
+        try? fh.seek(toOffset: end > 2_000_000 ? end - 2_000_000 : 0)
+        guard let data = try? fh.readToEnd() else { return nil }
+        let marker = Data("\"usage\"".utf8)
+        for line in data.split(separator: UInt8(ascii: "\n")).reversed() where line.range(of: marker) != nil {
+            guard let obj = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
+                  obj["type"] as? String == "assistant", obj["isSidechain"] as? Bool != true,
+                  let usage = (obj["message"] as? [String: Any])?["usage"] as? [String: Any] else { continue }
+            return ["input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"].reduce(0) { $0 + ((usage[$1] as? Int) ?? 0) }
+        }
+        return nil
+    }
+
     func handle(token: String, event: String, body: [String: Any], respond: @escaping HookServer.Respond) {
+        if let path = body["transcript_path"] as? String { refreshContext(token: token, transcript: path) }
         if event == "start" {
             sessions.markReady(token: token)
             respond(nil)
@@ -44,7 +71,7 @@ final class FactoryBridge {
                 world.setBadge(b, .question, summary: Self.firstLine(q))
             case "ExitPlanMode":
                 world.setBadge(b, .plan)
-            case "mcp__slime-factory__report_status":
+            case "mcp__slime-factory__report_status", "mcp__slime-factory__say":
                 break
             default:
                 world.clearBadge(b)
@@ -163,7 +190,7 @@ final class FactoryBridge {
 
     private func context(for b: SoftBody) -> [String: Any] {
         let text = """
-        Slime Factory: このバブルの名前は「\(b.name)」です。矢印の送り先: \(describe(world.outgoing(b.id)))。受け取り元: \(describe(world.incoming(b.id)))。管理セッション「\(world.conductor?.name ?? "管理")」には、矢印がなくても報告を送れます。
+        Slime Factory: このスライムの名前は「\(b.name)」です。矢印の送り先: \(describe(world.outgoing(b.id)))。受け取り元: \(describe(world.incoming(b.id)))。管理セッション「\(world.conductor?.name ?? "管理")」には、矢印がなくても報告を送れます。
         """
         return ["hookSpecificOutput": ["hookEventName": "UserPromptSubmit", "additionalContext": text]]
     }
@@ -182,19 +209,19 @@ final class FactoryBridge {
         let message = (input["message"] as? String) ?? ""
         let summary = (input["summary"] as? String) ?? ""
         let allowed = world.outgoing(b.id)
-        let allowedText = allowed.isEmpty ? "このバブルから出ている矢印はありません。人に報告して終えてください。"
+        let allowedText = allowed.isEmpty ? "このスライムから出ている矢印はありません。人に報告して終えてください。"
             : "送れる相手: \(allowed.map { "「\($0.name)」" }.joined(separator: "、"))。"
 
         if to.hasPrefix("uds:") {
-            respond(Self.decision(false, "Slime Factory: 宛先はバブルの名前で指定してください。\(allowedText)"))
+            respond(Self.decision(false, "Slime Factory: 宛先はスライムの名前で指定してください。\(allowedText)"))
             return
         }
         guard let target = world.bodyNamed(to) else {
-            respond(Self.decision(false, "Slime Factory: 「\(to)」は Slime Factory のバブルではないため、送れません。\(allowedText)"))
+            respond(Self.decision(false, "Slime Factory: 「\(to)」は Slime Factory のスライムではないため、送れません。\(allowedText)"))
             return
         }
         if target.engine == .agy {
-            respond(Self.decision(false, "Slime Factory: 「\(target.name)」は Antigravity CLI のバブルなので、SendMessage では送れません。人に伝えてください。"))
+            respond(Self.decision(false, "Slime Factory: 「\(target.name)」は Antigravity CLI のスライムなので、SendMessage では送れません。人に伝えてください。"))
             return
         }
         if target.id != b.id && (b.isConductor || target.isConductor) {

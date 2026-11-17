@@ -60,6 +60,11 @@ struct Badge {
     var summary: String
 }
 
+struct Speech {
+    var text: String
+    var time: Float
+}
+
 struct Activity {
     var text: String
     var symbol: String
@@ -115,6 +120,8 @@ final class SoftBody {
     var scale: Float = 1
     var scaleV: Float = 0
     var scaleTarget: Float = 1
+    var contextTokens = 0
+    var girth: Float { 0.8 + 0.7 * min(Float(contextTokens) / 200_000, 1) }
     let phase = Float.random(in: 0...10)
 
     var grabbed = false
@@ -138,6 +145,7 @@ final class SoftBody {
     var isConductor = false
     var activity: Activity?
     var topic: String?
+    var speech: Speech?
     var homeTarget: V2?
     var restSpot: V2?
     var dirName = ""

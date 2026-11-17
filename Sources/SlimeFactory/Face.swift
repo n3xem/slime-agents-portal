@@ -175,6 +175,7 @@ struct FaceView: View {
     let style: FaceStyle
     let tint: Color
     let time: Float
+    var royal = false
 
     var body: some View {
         Canvas { ctx, size in
@@ -186,6 +187,7 @@ struct FaceView: View {
             case .cat: drawCat(&ctx, f)
             case .dot: drawDot(&ctx, f)
             }
+            if royal { drawMustache(&ctx, f) }
         }
         .frame(width: 64, height: 30)
     }
@@ -253,6 +255,22 @@ private func drawMouth(_ ctx: inout GraphicsContext, _ f: FaceFrame, scale k: CG
     } else {
         stroke(&ctx, arc(CGPoint(x: m.x - w, y: m.y), CGPoint(x: m.x + w, y: m.y), CGPoint(x: m.x, y: m.y + curve)), width)
     }
+}
+
+private func drawMustache(_ ctx: inout GraphicsContext, _ f: FaceFrame) {
+    let x = f.c.x + f.look.x * 0.6, y = f.c.y + 5 + f.look.y * 0.4
+    let wiggle = CGFloat(sin(f.time * 1.7)) * 0.6
+    var m = Path()
+    for s: CGFloat in [-1, 1] {
+        m.move(to: CGPoint(x: x, y: y))
+        m.addQuadCurve(to: CGPoint(x: x + s * 14, y: y + 4.4), control: CGPoint(x: x + s * 5, y: y + 6.4))
+        m.addQuadCurve(to: CGPoint(x: x + s * 18.5, y: y - 2 - wiggle), control: CGPoint(x: x + s * 19.5, y: y + 4))
+        m.addQuadCurve(to: CGPoint(x: x + s * 13, y: y + 2), control: CGPoint(x: x + s * 16.4, y: y + 1.6))
+        m.addQuadCurve(to: CGPoint(x: x, y: y + 0.8), control: CGPoint(x: x + s * 6.5, y: y + 0.4))
+        m.closeSubpath()
+    }
+    ctx.fill(m, with: .color(Color(red: 0.2, green: 0.12, blue: 0.08)))
+    ctx.stroke(m, with: .color(Color(red: 0.2, green: 0.12, blue: 0.08)), style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))
 }
 
 private func sparkle(_ ctx: inout GraphicsContext, _ p: CGPoint, size r: CGFloat, alpha: CGFloat) {

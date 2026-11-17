@@ -176,7 +176,7 @@ final class World {
     init(templates: [Template]) {
         syncTemplates(templates)
         layout(size: size)
-        let c = SoftBody(id: nextId, template: World.conductorTemplate, name: "管理", center: conductorHome, radius: 52)
+        let c = SoftBody(id: nextId, template: World.conductorTemplate, name: "管理", center: conductorHome, radius: 64)
         nextId += 1
         c.isConductor = true
         c.faceStyle = .standard
@@ -715,7 +715,7 @@ final class World {
             let hv: Float = hoverBody == b.id ? 1 : 0
             b.hover += (hv - b.hover) * min(1, dt * 10)
             if b.absorbInto == nil && !b.grabbed {
-                b.scaleTarget = 1 + 0.04 * b.hover
+                b.scaleTarget = (1 + 0.04 * b.hover) * b.girth
             }
             b.glow = max(0, b.glow - dt * 0.7)
         }

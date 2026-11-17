@@ -145,7 +145,7 @@ struct OverlayView: View {
 
             ForEach(world.bodies, id: \.id) { b in
                 VStack(spacing: 2) {
-                    FaceView(face: b.face, style: b.faceStyle, tint: Color(b.template.color), time: world.time)
+                    FaceView(face: b.face, style: b.faceStyle, tint: Color(b.template.color), time: world.time, royal: b.isConductor)
                     Text("\(Image(systemName: b.template.symbol)) \(b.displayName)")
                         .font(.system(size: 13, weight: .heavy, design: .rounded))
                         .foregroundStyle(b.isConductor ? AnyShapeStyle(royalGold) : AnyShapeStyle(Color.white))
@@ -181,13 +181,14 @@ struct OverlayView: View {
             if let c = world.conductor {
                 let r = c.radius * c.scale
                 let hop = CGFloat(clampf(c.scaleV * 1.4, -6, 12))
+                let cw = CGFloat(c.radius) * 1.35, chh = cw * 0.78
                 CrownView(time: world.time)
-                    .frame(width: 64, height: 44)
+                    .frame(width: cw, height: chh)
                     .scaleEffect(CGFloat(max(c.scale, 0.001)), anchor: .bottom)
                     .rotationEffect(.radians(Double(clampf(c.angle * 0.8, -0.35, 0.35)) - 0.12), anchor: .bottom)
                     .shadow(color: Color(red: 1, green: 0.75, blue: 0.3).opacity(0.45), radius: 6)
                     .shadow(color: .black.opacity(0.45), radius: 2, y: 2)
-                    .position(x: CGFloat(c.com.x - r * 0.12), y: CGFloat(c.com.y - r * 1.0) - 14 - hop)
+                    .position(x: CGFloat(c.com.x - r * 0.12), y: CGFloat(c.com.y - r * 0.85) - chh * 0.36 - hop)
             }
 
             ForEach(world.bodies.filter { $0.absorbInto == nil && $0.scale > 0.3 }, id: \.id) { b in
@@ -202,6 +203,10 @@ struct OverlayView: View {
                 activityBalloon(b)
                     .scaleEffect(CGFloat(max(b.scale, 0.001)), anchor: .bottom)
                     .position(x: CGFloat(b.com.x), y: max(world.visibleRect.minY + 78 / CGFloat(world.zoom), CGFloat(b.com.y - b.radius * b.scale - 30)))
+            }
+
+            ForEach(world.bodies.filter { $0.speech != nil && $0.absorbInto == nil }, id: \.id) { b in
+                if let s = b.speech { speech(b, s) }
             }
 
             ForEach(world.bodies.filter { $0.badge != nil && $0.absorbInto == nil }, id: \.id) { b in
@@ -312,6 +317,34 @@ struct OverlayView: View {
         .opacity(stale ? 0.45 : 1)
     }
 
+    private func speech(_ b: SoftBody, _ s: Speech) -> some View {
+        let r = CGFloat(b.radius * b.scale)
+        let left = CGFloat(b.com.x) + r + 250 > world.visibleRect.maxX
+        let age = world.time - s.time
+        let wobble: Float = 1 + 0.18 * sin(min(age, 0.6) * 10.5) * exp(-age * 4)
+        let pop = CGFloat(max(min(1, age * 7) * wobble, 0.001))
+        let bob = CGFloat(sin(world.time * 2.2 + b.phase)) * 2
+        return speechBalloon(s.text, tailLeft: !left)
+            .scaleEffect(pop, anchor: left ? .trailing : .leading)
+            .frame(width: 1, height: 1, alignment: left ? .trailing : .leading)
+            .position(x: CGFloat(b.com.x) + (left ? -r - 4 : r + 4), y: CGFloat(b.com.y) - r * 0.45 + bob)
+    }
+
+    private func speechBalloon(_ text: String, tailLeft: Bool) -> some View {
+        let wide = text.reduce(CGFloat(0)) { $0 + ($1.isASCII ? 0.6 : 1.0) * 12.5 } > 210
+        return Text(text)
+            .font(.system(size: 12.5, weight: .bold, design: .rounded))
+            .foregroundStyle(Color(red: 0.12, green: 0.1, blue: 0.18))
+            .lineLimit(3)
+            .frame(width: wide ? 210 : nil, alignment: .leading)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 7)
+            .background(SpeechShape(tailLeft: tailLeft).fill(Color.white.opacity(0.96)))
+            .padding(tailLeft ? .leading : .trailing, 9)
+            .fixedSize()
+            .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
+    }
+
     private func clip(_ s: String, width: CGFloat, size: CGFloat) -> String {
         var w: CGFloat = 0
         var out = ""
@@ -384,6 +417,22 @@ struct BalloonShape: Shape {
     }
 }
 
+struct SpeechShape: Shape {
+    let tailLeft: Bool
+
+    func path(in rect: CGRect) -> Path {
+        var p = Path(roundedRect: rect, cornerRadius: 12)
+        let y = rect.minY + min(rect.height * 0.5, 16)
+        let x = tailLeft ? rect.minX : rect.maxX
+        let s: CGFloat = tailLeft ? -1 : 1
+        p.move(to: CGPoint(x: x, y: y - 6))
+        p.addQuadCurve(to: CGPoint(x: x + s * 10, y: y + 3), control: CGPoint(x: x + s * 4, y: y))
+        p.addQuadCurve(to: CGPoint(x: x, y: y + 5), control: CGPoint(x: x + s * 3, y: y + 4))
+        p.closeSubpath()
+        return p
+    }
+}
+
 private let royalGold = LinearGradient(colors: [Color(red: 1, green: 0.93, blue: 0.62), Color(red: 1, green: 0.74, blue: 0.25)],
                                        startPoint: .top, endPoint: .bottom)
 
@@ -392,7 +441,8 @@ struct CrownView: View {
 
     var body: some View {
         Canvas { ctx, size in
-            let w = size.width, h = size.height
+            let w = size.width, h = size.height * 0.62
+            ctx.translateBy(x: 0, y: size.height * 0.22)
             let base = h * 0.78, band = h * 0.2
             let tips: [CGPoint] = [
                 CGPoint(x: w * 0.06, y: h * 0.22), CGPoint(x: w * 0.28, y: h * 0.12), CGPoint(x: w * 0.5, y: h * 0.02),
@@ -412,6 +462,13 @@ struct CrownView: View {
             crown.addLine(to: CGPoint(x: w * 0.9, y: base))
             crown.addQuadCurve(to: CGPoint(x: w * 0.1, y: base), control: CGPoint(x: w * 0.5, y: base + h * 0.1))
             crown.closeSubpath()
+            var cap = Path()
+            cap.move(to: CGPoint(x: w * 0.13, y: base - band))
+            cap.addCurve(to: CGPoint(x: w * 0.87, y: base - band), control1: CGPoint(x: w * 0.12, y: -h * 0.05),
+                         control2: CGPoint(x: w * 0.88, y: -h * 0.05))
+            cap.closeSubpath()
+            ctx.fill(cap, with: .radialGradient(Gradient(colors: [Color(red: 0.95, green: 0.25, blue: 0.32), Color(red: 0.5, green: 0.03, blue: 0.13)]),
+                                                center: CGPoint(x: w * 0.4, y: h * 0.2), startRadius: 0, endRadius: w * 0.45))
             let gold = Gradient(colors: [Color(red: 1, green: 0.95, blue: 0.68), Color(red: 1, green: 0.78, blue: 0.3),
                                          Color(red: 0.78, green: 0.5, blue: 0.12)])
             ctx.fill(crown, with: .linearGradient(gold, startPoint: CGPoint(x: w * 0.3, y: 0), endPoint: CGPoint(x: w * 0.6, y: h)))
@@ -445,6 +502,20 @@ struct CrownView: View {
                                                                     center: CGPoint(x: rect.midX - r * 0.3, y: rect.midY - r * 0.3),
                                                                     startRadius: 0, endRadius: r * 1.2))
             }
+            let rim = Color(red: 0.5, green: 0.3, blue: 0.05)
+            let orb = CGPoint(x: tips[2].x, y: tips[2].y - 3)
+            var cross = Path()
+            cross.move(to: CGPoint(x: orb.x, y: orb.y - 3))
+            cross.addLine(to: CGPoint(x: orb.x, y: orb.y - 12))
+            cross.move(to: CGPoint(x: orb.x - 3.4, y: orb.y - 8.4))
+            cross.addLine(to: CGPoint(x: orb.x + 3.4, y: orb.y - 8.4))
+            ctx.stroke(cross, with: .color(rim), style: StrokeStyle(lineWidth: 3.4, lineCap: .round))
+            ctx.stroke(cross, with: .color(Color(red: 1, green: 0.85, blue: 0.4)), style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
+            let orbRect = CGRect(x: orb.x - 3.8, y: orb.y - 3.8, width: 7.6, height: 7.6)
+            ctx.fill(Path(ellipseIn: orbRect), with: .radialGradient(Gradient(colors: [Color(red: 1, green: 0.97, blue: 0.8), Color(red: 1, green: 0.78, blue: 0.3),
+                                                                                        Color(red: 0.75, green: 0.48, blue: 0.1)]),
+                                                                    center: CGPoint(x: orb.x - 1.2, y: orb.y - 1.2), startRadius: 0, endRadius: 4.6))
+            ctx.stroke(Path(ellipseIn: orbRect), with: .color(rim), lineWidth: 0.8)
 
             let sweep = CGFloat((time * 0.35).truncatingRemainder(dividingBy: 1)) * 2.2 - 0.6
             var gleam = ctx
@@ -456,6 +527,23 @@ struct CrownView: View {
             streak.addLine(to: CGPoint(x: w * (sweep - 0.2), y: h))
             streak.closeSubpath()
             gleam.fill(streak, with: .color(.white.opacity(0.45)))
+
+            let f0 = base - band * 0.1, f1 = base + h * 0.22, dip = h * 0.12
+            var fur = Path()
+            fur.move(to: CGPoint(x: w * 0.06, y: f0))
+            fur.addQuadCurve(to: CGPoint(x: w * 0.94, y: f0), control: CGPoint(x: w * 0.5, y: f0 + dip))
+            fur.addQuadCurve(to: CGPoint(x: w * 0.94, y: f1), control: CGPoint(x: w, y: (f0 + f1) / 2))
+            fur.addQuadCurve(to: CGPoint(x: w * 0.06, y: f1), control: CGPoint(x: w * 0.5, y: f1 + dip))
+            fur.addQuadCurve(to: CGPoint(x: w * 0.06, y: f0), control: CGPoint(x: 0, y: (f0 + f1) / 2))
+            fur.closeSubpath()
+            ctx.fill(fur, with: .linearGradient(Gradient(colors: [.white, Color(red: 0.84, green: 0.82, blue: 0.9)]),
+                                                startPoint: CGPoint(x: 0, y: f0), endPoint: CGPoint(x: 0, y: f1 + dip)))
+            ctx.stroke(fur, with: .color(Color(red: 0.62, green: 0.6, blue: 0.7)), lineWidth: 0.8)
+            for t: CGFloat in [0.17, 0.39, 0.61, 0.83] {
+                let sy = (f0 + f1) / 2 + 2 * t * (1 - t) * dip
+                ctx.fill(Path(ellipseIn: CGRect(x: w * t - 1.3, y: sy - 2.2, width: 2.6, height: 4.4)),
+                         with: .color(Color(red: 0.1, green: 0.08, blue: 0.12)))
+            }
 
             let twinkle = pow(max(0, sin(time * 2.3)), 8)
             if twinkle > 0.01 {

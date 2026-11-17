@@ -216,6 +216,10 @@ final class SnapshotRunner {
             world.mouseUp(to)
             advance(2.5)
             capture("10_conductor_moved")
+            c.speech = Speech(text: "Slack に返事をしていない依頼が 2 件あります。1 件は今日が期限です", time: world.time)
+            advance(0.8)
+            capture("10_speech")
+            c.speech = nil
         }
         if let b = body(named: "E2Eテスト") {
             world.addPending(PendingSend(targetId: b.id, targetName: b.displayName, ropeId: -1,
