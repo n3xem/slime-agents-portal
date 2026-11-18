@@ -100,6 +100,8 @@ enum SandboxMode: String, Codable, CaseIterable {
         }
     }
 
+    var boxed: Bool { self == .on || self == .strict }
+
     var settings: [String: Any]? {
         switch self {
         case .inherit: return nil

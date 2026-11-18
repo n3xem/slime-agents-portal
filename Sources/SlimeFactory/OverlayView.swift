@@ -142,6 +142,15 @@ struct OverlayView: View {
             }
             .allowsHitTesting(false)
 
+            ForEach(world.bodies.filter { $0.sandboxMode.boxed && $0.absorbInto == nil }, id: \.id) { b in
+                let d = CGFloat(b.radius * b.scale) * 2.8
+                let age = world.time - b.domeTime - 0.35
+                SandboxDomeView(inner: b.sandboxMode == .strict ? springPop(age * 1.6 - 0.25) : 0)
+                    .frame(width: d, height: d)
+                    .scaleEffect(springPop(age * 1.6))
+                    .opacity(Double(clampf(age * 4, 0, 1)))
+                    .position(x: CGFloat(b.com.x), y: CGFloat(b.com.y))
+            }
 
             ForEach(world.bodies, id: \.id) { b in
                 VStack(spacing: 2) {
@@ -557,6 +566,32 @@ struct CrownView: View {
                 star.addQuadCurve(to: CGPoint(x: c.x, y: c.y - s), control: c)
                 ctx.fill(star, with: .color(.white.opacity(Double(twinkle))))
             }
+        }
+    }
+}
+
+struct SandboxDomeView: View {
+    let inner: CGFloat
+
+    var body: some View {
+        Canvas { ctx, size in
+            let rect = CGRect(origin: .zero, size: size).insetBy(dx: 2, dy: 2)
+            let c = CGPoint(x: size.width / 2, y: size.height / 2)
+            let ball = Path(ellipseIn: rect)
+            ctx.fill(ball, with: .radialGradient(
+                Gradient(colors: [.white.opacity(0.0), .white.opacity(0.04), Color(red: 0.75, green: 0.92, blue: 1).opacity(0.28)]),
+                center: c, startRadius: 0, endRadius: size.width / 2))
+            ctx.stroke(ball, with: .color(.white.opacity(0.6)), lineWidth: 1.6)
+            if inner > 0.01 {
+                let ir = (size.width / 2 - 9) * inner
+                ctx.stroke(Path(ellipseIn: CGRect(x: c.x - ir, y: c.y - ir, width: ir * 2, height: ir * 2)),
+                           with: .color(.white.opacity(0.5)), lineWidth: 1.6)
+            }
+            var hl = Path()
+            hl.addArc(center: c, radius: size.width * 0.4, startAngle: .degrees(195), endAngle: .degrees(245), clockwise: false)
+            ctx.stroke(hl, with: .color(.white.opacity(0.75)), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+            let dot = CGRect(x: c.x - size.width * 0.27, y: c.y - size.height * 0.39, width: 5, height: 5)
+            ctx.fill(Path(ellipseIn: dot), with: .color(.white.opacity(0.8)))
         }
     }
 }

@@ -77,6 +77,7 @@ struct AgyPanel: View {
     @ObservedObject var session: AgySession
     var title: String?
     let close: () -> Void
+    var openShell: (() -> Void)?
 
     private var color: Color { session.template.swiftColor }
 
@@ -112,6 +113,9 @@ struct AgyPanel: View {
                 }
                 Spacer()
                 AgyStatusChip(session: session)
+                if let openShell {
+                    CloseButton(action: openShell, help: "このスライムと同じディレクトリでターミナルを開く", symbol: "terminal.fill")
+                }
                 CloseButton(action: close)
             }
         } content: {

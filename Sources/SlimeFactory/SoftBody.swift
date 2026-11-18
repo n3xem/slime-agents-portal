@@ -150,6 +150,7 @@ final class SoftBody {
     var restSpot: V2?
     var dirName = ""
     var sandboxMode: SandboxMode = .inherit
+    var domeTime: Float = 0
     var usesWorktree = false
     var dirMismatch = false
     var islandId: Int?

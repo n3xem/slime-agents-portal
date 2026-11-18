@@ -5,7 +5,7 @@ final class FactoryMCP {
     let sessions: SessionManager
     let store: TemplateStore
     /// 画面のエディタでファイルを開く。開けなかったら理由を投げる。
-    var openFile: ((URL) throws -> Void)?
+    var openFile: ((SoftBody, URL) -> Void)?
 
     init(world: World, sessions: SessionManager, store: TemplateStore) {
         self.world = world
@@ -110,7 +110,7 @@ final class FactoryMCP {
 
     static let openFileTool: [String: Any] = [
         "name": "open_file",
-        "description": "Markdown ファイル（.md）を Slime Factory の画面のエディタで開く。人はそこで編集でき、編集は自動で保存される。人に「開いて」「見せて」と頼まれたときや、書いた文書を人に見てほしいときに使う。いま開ける形式は .md だけ。ほかのパネル（ターミナルなど）を開いていたら、それを閉じてエディタを出す。",
+        "description": "Markdown ファイル（.md）を Slime Factory の画面のエディタで開く。人はそこで編集でき、編集は自動で保存される。人に「開いて」「見せて」と頼まれたときや、書いた文書を人に見てほしいときに使う。いま開ける形式は .md だけ。ほかのパネル（ターミナルなど）を開いていたら、それを閉じてエディタを出す。開く前に、「開く / 開かない」を選ぶダイアログを出して人に確かめる。このツールは確かめている間にすぐ戻り、人が「開く」を押したときに開く。",
         "inputSchema": ["type": "object",
                         "properties": ["path": ["type": "string", "description": "ファイルの絶対パス。~ も使える"]],
                         "required": ["path"]],
@@ -187,7 +187,7 @@ final class FactoryMCP {
         sayTool,
     ]
 
-    private func open(_ args: [String: Any]) throws -> Any {
+    private func open(_ b: SoftBody, _ args: [String: Any]) throws -> Any {
         guard let raw = string(args, "path"), !raw.isEmpty else { throw ToolError(message: "path を指定してください。") }
         let path = (raw as NSString).expandingTildeInPath
         guard path.hasPrefix("/") else { throw ToolError(message: "path は絶対パスで指定してください（~ も使えます）。") }
@@ -200,16 +200,12 @@ final class FactoryMCP {
             throw ToolError(message: "ファイル「\(raw)」がありません。")
         }
         guard let openFile else { throw ToolError(message: "画面の準備ができていないため開けませんでした。") }
-        do {
-            try openFile(url)
-        } catch {
-            throw ToolError(message: "「\(url.lastPathComponent)」を開けませんでした: \(error.localizedDescription)")
-        }
-        return "画面のエディタで開きました: \(url.path)"
+        openFile(b, url)
+        return "「\(url.lastPathComponent)」を開くか人に確かめています。人が「開く」を押すと画面のエディタで開きます: \(url.path)"
     }
 
     private func callBubble(_ b: SoftBody, _ name: String, _ args: [String: Any]) throws -> Any {
-        if name == "open_file" { return try open(args) }
+        if name == "open_file" { return try open(b, args) }
         if name == "say" { return say(b, args) }
         guard name == "report_status" else { throw ToolError(message: "不明なツール: \(name)") }
         let summary = FactoryBridge.firstLine(string(args, "summary") ?? "", limit: 80)
@@ -522,7 +518,8 @@ final class FactoryMCP {
             b.kick(3)
             return describe(b)
         case "open_file":
-            return try open(args)
+            guard let c = world.conductor else { throw ToolError(message: "管理スライムが見つかりません。") }
+            return try open(c, args)
         case "say":
             guard let c = world.conductor else { throw ToolError(message: "管理スライムが見つかりません。") }
             return say(c, args)

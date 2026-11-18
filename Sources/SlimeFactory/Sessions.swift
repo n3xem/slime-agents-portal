@@ -494,6 +494,7 @@ final class SessionManager: ObservableObject {
     @Published private(set) var sessions: [Int: ClaudeSession] = [:]
     @Published private(set) var agySessions: [Int: AgySession] = [:]
     private(set) var shell: ShellSession?
+    private(set) var bodyShells: [Int: ShellSession] = [:]
     let server: HookServer?
 
     static let conductorTemplate = TemplateModel(id: "__conductor", name: "管理", symbol: "crown.fill",
@@ -641,6 +642,19 @@ final class SessionManager: ObservableObject {
         sessions[id] = nil
         agySessions[id]?.terminate()
         agySessions[id] = nil
+        bodyShells[id]?.terminate()
+        bodyShells[id] = nil
+    }
+
+    func bodyShell(_ id: Int, workdir: String) -> ShellSession {
+        if let s = bodyShells[id] {
+            if s.exited { s.start() }
+            return s
+        }
+        let s = ShellSession(workdir: workdir)
+        bodyShells[id] = s
+        s.start()
+        return s
     }
 
     func shellSession(workdir: String) -> ShellSession {
@@ -658,5 +672,6 @@ final class SessionManager: ObservableObject {
         for s in sessions.values { s.terminate() }
         for a in agySessions.values { a.terminate() }
         shell?.terminate()
+        for s in bodyShells.values { s.terminate() }
     }
 }

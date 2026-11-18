@@ -5,6 +5,7 @@ final class AppState: ObservableObject {
     @Published var openBodyId: Int?
     @Published var editingTemplateId: String?
     @Published var shellOpen = false
+    @Published var sideShellFor: Int?
     @Published var dirRequest: DirectoryRequest?
     /// 開いている Markdown。差し替えたり閉じたりしたら、前の文書を保存しきる。
     @Published var editor: MarkdownDocument? {
@@ -35,6 +36,7 @@ final class AppState: ObservableObject {
     @Published var ghosts: [PanelGhost] = []
     var panelFrames: [PanelSlot: CGRect] = [:]
     weak var window: NSWindow?
+    var openRequests: [(SoftBody, URL)] = []
 }
 
 extension TemplateModel {
@@ -102,11 +104,12 @@ struct PanelChrome<Header: View, Content: View>: View {
 struct CloseButton: View {
     let action: () -> Void
     var help = "閉じる（セッションは動き続けます）"
+    var symbol = "xmark"
     @State private var hover = false
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "xmark")
+            Image(systemName: symbol)
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(.white.opacity(hover ? 1 : 0.7))
                 .frame(width: 28, height: 28)
@@ -160,6 +163,7 @@ struct TerminalPanel: View {
     @ObservedObject var session: ClaudeSession
     var title: String?
     let close: () -> Void
+    var openShell: (() -> Void)?
 
     private var color: Color { session.template.swiftColor }
 
@@ -200,6 +204,9 @@ struct TerminalPanel: View {
                 }
                 Spacer()
                 StatusChip(session: session)
+                if let openShell {
+                    CloseButton(action: openShell, help: "このスライムと同じディレクトリでターミナルを開く", symbol: "terminal.fill")
+                }
                 CloseButton(action: close)
             }
         } content: {

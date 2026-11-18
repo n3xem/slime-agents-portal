@@ -111,7 +111,7 @@ final class SlimeMTKView: MTKView, MTKViewDelegate {
             configMenu?(b, m)
             if !b.isConductor {
                 m.addItem(.separator())
-                m.addItem(withTitle: "テンプレートのスライムに戻す", action: #selector(menuRemove), keyEquivalent: "").target = self
+                m.addItem(withTitle: "削除", action: #selector(menuRemove), keyEquivalent: "").target = self
             }
             return m
         }
@@ -477,12 +477,14 @@ struct ContentView: View {
                 // ターミナルとファイルは並べて出せる。両方あるときはターミナルが左半分、ファイルが右半分。
                 HStack(spacing: 16) {
                     if let id = ui.openBodyId, let s = sessions.existing(id) {
-                        TerminalPanel(session: s, title: world.body(id)?.title, close: closeTerminal)
+                        TerminalPanel(session: s, title: world.body(id)?.title, close: closeTerminal,
+                                      openShell: { toggleSideShell(id, s.currentDirectory) })
                             .trackPanelFrame(.terminal, in: ui)
                             .transition(.panelIn(anchor: ui.anchor))
                             .id(id)
                     } else if let id = ui.openBodyId, let a = sessions.existingAgy(id) {
-                        AgyPanel(session: a, title: world.body(id)?.title, close: closeTerminal)
+                        AgyPanel(session: a, title: world.body(id)?.title, close: closeTerminal,
+                                 openShell: { toggleSideShell(id, a.config.workdir) })
                             .trackPanelFrame(.terminal, in: ui)
                             .transition(.panelIn(anchor: ui.anchor))
                             .id(id)
@@ -496,6 +498,11 @@ struct ContentView: View {
                             .trackPanelFrame(.editor, in: ui)
                             .transition(.panelIn(anchor: .trailing))
                             .id(ObjectIdentifier(doc))
+                    } else if let id = ui.sideShellFor, id == ui.openBodyId, let s = sessions.bodyShells[id] {
+                        ShellPanel(session: s, close: closeSideShell)
+                            .trackPanelFrame(.editor, in: ui)
+                            .transition(.panelIn(anchor: .trailing))
+                            .id("side-shell-\(id)")
                     }
                 }
                 .padding(.horizontal, max(40, geo.size.width * 0.06))
@@ -585,7 +592,56 @@ struct ContentView: View {
         changePanels {
             ui.editingTemplateId = nil
             ui.dirRequest = nil
+            ui.sideShellFor = nil
             ui.editor = doc
+        }
+    }
+
+    private func toggleSideShell(_ id: Int, _ dir: String) {
+        if ui.sideShellFor == id && ui.editor == nil {
+            closeSideShell()
+            return
+        }
+        _ = sessions.bodyShell(id, workdir: dir)
+        changePanels {
+            ui.editor = nil
+            ui.sideShellFor = id
+        }
+    }
+
+    private func closeSideShell() {
+        changePanels(.spring(response: 0.36, dampingFraction: 0.9)) { ui.sideShellFor = nil }
+    }
+
+    private func confirmOpen(_ b: SoftBody, _ url: URL) {
+        if let doc = ui.editor, doc.url == url.resolvingSymlinksInPath() { return }
+        ui.openRequests.append((b, url))
+        b.kick(3)
+        NSApp.requestUserAttention(.informationalRequest)
+        if ui.openRequests.count == 1 { askNextOpen() }
+    }
+
+    private func askNextOpen() {
+        guard let (b, url) = ui.openRequests.first else { return }
+        guard let window = ui.window ?? NSApp.keyWindow ?? NSApp.windows.first else {
+            ui.openRequests.removeAll()
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "「\(b.displayName)」がファイルを見てほしいそうです"
+        alert.informativeText = "「\(url.lastPathComponent)」を開きますか？\n\((url.path as NSString).abbreviatingWithTildeInPath)"
+        alert.addButton(withTitle: "開く")
+        alert.addButton(withTitle: "開かない")
+        alert.beginSheetModal(for: window) { resp in
+            ui.openRequests.removeFirst()
+            if resp == .alertFirstButtonReturn {
+                do {
+                    try openMarkdown(url)
+                } catch {
+                    b.speech = Speech(text: "「\(url.lastPathComponent)」を開けませんでした", time: world.time)
+                }
+            }
+            DispatchQueue.main.async { askNextOpen() }
         }
     }
 
@@ -636,7 +692,9 @@ struct ContentView: View {
             if ui.shellOpen, sessions.shell != nil { return "shell" }
             return nil
         case .editor:
-            return ui.editor.map { ObjectIdentifier($0) }
+            if let doc = ui.editor { return ObjectIdentifier(doc) }
+            if let id = ui.sideShellFor, id == ui.openBodyId, sessions.bodyShells[id] != nil { return "side-shell-\(id)" }
+            return nil
         }
     }
 
@@ -701,7 +759,7 @@ struct ContentView: View {
         let bridge = FactoryBridge(world: world, sessions: sessions, store: store)
         sharedHookServer?.handler = { bridge.handle(token: $0, event: $1, body: $2, respond: $3) }
         let mcp = FactoryMCP(world: world, sessions: sessions, store: store)
-        mcp.openFile = { try openMarkdown($0) }
+        mcp.openFile = { confirmOpen($0, $1) }
         sharedHookServer?.mcpHandler = { mcp.handle(token: $0, method: $1, body: $2, reply: $3) }
         sessions.locationResolver = { b in
             if let i = world.islandAt(b.com) { return i.path }

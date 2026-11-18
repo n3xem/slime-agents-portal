@@ -739,6 +739,7 @@ final class World {
             }
             if let info = launchInfoProvider?(b) {
                 b.dirName = info.0
+                if info.1.boxed != b.sandboxMode.boxed { b.domeTime = time }
                 b.sandboxMode = info.1
                 b.usesWorktree = info.2
                 b.dirMismatch = info.3

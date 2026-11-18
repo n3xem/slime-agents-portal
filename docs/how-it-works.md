@@ -90,7 +90,7 @@ agy [--mode <モード>] [--sandbox] [--model <モデル>] [--effort <段階>] [
 
 管理セッションに渡すツールは `list_templates`、`list_bubbles`、`list_islands`、`create_island`、`create_bubble`、`configure_bubble`、`connect_bubbles`、`disconnect_bubbles`、`start_bubble`、`open_file`、`say`。ほかのスライムに渡すツールは `report_status`、`open_file`、`say`。
 
-- `open_file`: Markdown ファイルを画面のエディタで開く
+- `open_file`: Markdown ファイルを画面のエディタで開く。開く前に、「開く / 開かない」を選ぶダイアログを出して人に確かめる
 - `say`: そのスライムの横に短い吹き出し（80 文字まで）を出す。新しく出すと前の吹き出しは置き換わり、人がスライムを開くか、`text` を空にして呼ぶと消える。定期的に見回るエージェントが、人に知らせたいことを見つけたときに使う想定
 
 管理セッションとスライムの間の `SendMessage` は、矢印がなくても許可する。
