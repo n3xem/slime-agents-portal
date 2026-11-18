@@ -22,6 +22,30 @@ final class OutputClock: @unchecked Sendable {
 enum ShellEnvironment {
     private static var cached: [String: String]?
     private static let lock = NSLock()
+    private static let cacheLock = NSLock()
+
+    static var loaded: [String: String]? {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        return cached
+    }
+
+    private static func store(_ env: [String: String]) {
+        cacheLock.lock()
+        cached = env
+        cacheLock.unlock()
+    }
+
+    static func whenLoaded(_ then: @escaping ([String: String]) -> Void) {
+        if let env = loaded {
+            then(env)
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let env = load()
+            DispatchQueue.main.async { then(env) }
+        }
+    }
 
     private static func discardUntilClosed(_ pipe: Pipe) {
         let handle = pipe.fileHandleForReading
@@ -80,7 +104,7 @@ enum ShellEnvironment {
     static func load() -> [String: String] {
         lock.lock()
         defer { lock.unlock() }
-        if let cached { return cached }
+        if let env = loaded { return env }
         let parent = ProcessInfo.processInfo.environment
         let shell = parent["SHELL"] ?? "/bin/zsh"
         var base: [String: String] = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": shell, "TERM": "xterm-256color"]
@@ -91,13 +115,13 @@ enum ShellEnvironment {
         if let env = capture(shell: shell, base: base, until: deadline) ?? capture(shell: shell, base: base, until: deadline) {
             var merged = base
             merged.merge(env) { _, new in new }
-            cached = merged
+            store(merged)
             return merged
         }
         var fallback = base
         let home = parent["HOME"] ?? NSHomeDirectory()
         fallback["PATH"] = ["\(home)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", base["PATH"]!].joined(separator: ":")
-        cached = fallback
+        store(fallback)
         return fallback
     }
 
@@ -330,11 +354,22 @@ final class ClaudeSession: NSObject, LocalProcessTerminalViewDelegate, Observabl
         return args
     }
 
+    private var waitingForEnv = false
+
     func start(resume: Bool = false) {
         exited = false
         ready = false
         exitCode = nil
-        var env = ShellEnvironment.load()
+        waitingForEnv = true
+        ShellEnvironment.whenLoaded { [weak self] env in
+            guard let self, self.waitingForEnv else { return }
+            self.waitingForEnv = false
+            self.launch(env, resume: resume)
+        }
+    }
+
+    private func launch(_ loaded: [String: String], resume: Bool) {
+        var env = loaded
         env["TERM"] = "xterm-256color"
         env["COLORTERM"] = "truecolor"
         if env["LANG"] == nil { env["LANG"] = "ja_JP.UTF-8" }
@@ -376,7 +411,12 @@ final class ClaudeSession: NSObject, LocalProcessTerminalViewDelegate, Observabl
     }
 
     func terminate() {
-        if !exited { view.terminate() }
+        if waitingForEnv {
+            waitingForEnv = false
+            exited = true
+        } else if !exited {
+            view.terminate()
+        }
     }
 
     var state: SessionState {
@@ -425,10 +465,21 @@ final class ShellSession: NSObject, LocalProcessTerminalViewDelegate, Observable
         view.processDelegate = self
     }
 
+    private var waitingForEnv = false
+
     func start() {
         exited = false
         exitCode = nil
-        var env = ShellEnvironment.load()
+        waitingForEnv = true
+        ShellEnvironment.whenLoaded { [weak self] env in
+            guard let self, self.waitingForEnv else { return }
+            self.waitingForEnv = false
+            self.launch(env)
+        }
+    }
+
+    private func launch(_ loaded: [String: String]) {
+        var env = loaded
         env["TERM"] = "xterm-256color"
         env["COLORTERM"] = "truecolor"
         if env["LANG"] == nil { env["LANG"] = "ja_JP.UTF-8" }
@@ -438,7 +489,12 @@ final class ShellSession: NSObject, LocalProcessTerminalViewDelegate, Observable
     }
 
     func terminate() {
-        if !exited { view.terminate() }
+        if waitingForEnv {
+            waitingForEnv = false
+            exited = true
+        } else if !exited {
+            view.terminate()
+        }
     }
 
     func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
@@ -463,7 +519,7 @@ enum ClaudeSessionRegistry {
 
     static func namesInUse(excluding pids: Set<pid_t> = []) -> Set<String> {
         guard enabled else { return [] }
-        let env = ShellEnvironment.load()
+        let env = ShellEnvironment.loaded ?? ProcessInfo.processInfo.environment
         let base = env["CLAUDE_CONFIG_DIR"].map { ($0 as NSString).expandingTildeInPath }
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude").path
         let dir = URL(fileURLWithPath: base).appendingPathComponent("sessions")

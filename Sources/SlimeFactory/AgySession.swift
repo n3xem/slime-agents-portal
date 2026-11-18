@@ -61,9 +61,20 @@ final class AgySession: NSObject, LocalProcessTerminalViewDelegate, ObservableOb
         return args
     }
 
+    private var waitingForEnv = false
+
     func start() {
-        guard exited else { return }
-        var env = ShellEnvironment.load()
+        guard exited, !waitingForEnv else { return }
+        waitingForEnv = true
+        ShellEnvironment.whenLoaded { [weak self] env in
+            guard let self, self.waitingForEnv else { return }
+            self.waitingForEnv = false
+            self.launch(env)
+        }
+    }
+
+    private func launch(_ loaded: [String: String]) {
+        var env = loaded
         env["TERM"] = "xterm-256color"
         env["COLORTERM"] = "truecolor"
         if env["LANG"] == nil { env["LANG"] = "ja_JP.UTF-8" }
@@ -107,6 +118,7 @@ final class AgySession: NSObject, LocalProcessTerminalViewDelegate, ObservableOb
     }
 
     func terminate() {
+        waitingForEnv = false
         if !exited { view.terminate() }
     }
 
