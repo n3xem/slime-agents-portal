@@ -126,11 +126,16 @@ final class CanvasStore {
     }
 
     static func transcriptExists(_ sessionId: String) -> Bool {
+        transcriptPath(sessionId) != nil
+    }
+
+    static func transcriptPath(_ sessionId: String) -> String? {
         let base = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects")
-        guard let dirs = try? FileManager.default.contentsOfDirectory(atPath: base.path) else { return false }
-        for d in dirs where FileManager.default.fileExists(atPath: base.appendingPathComponent("\(d)/\(sessionId).jsonl").path) {
-            return true
+        guard let dirs = try? FileManager.default.contentsOfDirectory(atPath: base.path) else { return nil }
+        for d in dirs {
+            let path = base.appendingPathComponent("\(d)/\(sessionId).jsonl").path
+            if FileManager.default.fileExists(atPath: path) { return path }
         }
-        return false
+        return nil
     }
 }

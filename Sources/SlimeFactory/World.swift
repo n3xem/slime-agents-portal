@@ -13,6 +13,7 @@ struct Pull {
 enum TransientTarget {
     case lump(String)
     case body(Int)
+    case splash(Int)
 }
 
 struct Transient {
@@ -22,6 +23,13 @@ struct Transient {
     var color: V3
     var target: TransientTarget
     var age: Float = 0
+}
+
+struct Pop {
+    let p: V2
+    let time: Float
+    let color: V3
+    let seed: Int
 }
 
 struct Droplet {
@@ -67,6 +75,7 @@ final class World {
     var ropes: [Rope] = []
     var transients: [Transient] = []
     var droplets: [Droplet] = []
+    var pops: [Pop] = []
     var pull: Pull?
 
     var mouse = V2(-1000, -1000)
@@ -132,6 +141,15 @@ final class World {
     var launchInfoProvider: ((SoftBody) -> (String, SandboxMode, Bool, Bool))?
 
     static let pillFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
+
+    static func clipPill(_ s: String) -> String {
+        var out = ""
+        for ch in s {
+            if ((out + String(ch) + "…") as NSString).size(withAttributes: [.font: pillFont]).width > 260 { return out + "…" }
+            out.append(ch)
+        }
+        return out
+    }
 
     static func clipTitle(_ s: String) -> String {
         var width: Double = 0
@@ -532,6 +550,12 @@ final class World {
         updateHover(dt: dt)
         updateStatus(dt: dt)
 
+        for b in bodies where b.popTime.map({ time - $0 > 0.09 }) == true && b.scaleTarget > 0 {
+            b.scaleTarget = 0
+            b.scaleV = min(b.scaleV, -30)
+            splash(b)
+        }
+        pops.removeAll { time - $0.time > 2.5 }
         var removed: [SoftBody] = []
         bodies.removeAll { b in
             if b.absorbInto != nil && b.scale < 0.06 {
@@ -581,9 +605,18 @@ final class World {
         for i in transients.indices {
             var t = transients[i]
             var tp = t.p
+            if case .splash = t.target {
+                t.v += (V2(0, 320) - 7 * t.v) * h
+                t.p += t.v * h
+                t.age += h
+                if t.age > 0.35 { t.r *= exp(-h * (1.6 + t.age * 2)) }
+                transients[i] = t
+                continue
+            }
             switch t.target {
             case .lump(let l): if let lp = lump(l) { tp = lp.com } else { t.r = 0 }
             case .body(let id): if let b = body(id) { tp = b.com } else { t.r = 0 }
+            case .splash: break
             }
             let acc = 260 * (tp - t.p) - 13 * t.v
             t.v += acc * h
@@ -829,7 +862,19 @@ final class World {
         b.pending.removeFirst()
         b.statusTime = 0
         b.kick(2)
-        p.resolve(index == 0)
+        if index < p.options.count {
+            p.pick(index)
+        } else {
+            p.resolve(index == 0)
+            if p.isQuestion { onOpenBody?(b) }
+        }
+    }
+
+    func releaseQuestions(_ b: SoftBody) {
+        let questions = b.pending.filter { $0.isQuestion }
+        guard !questions.isEmpty else { return }
+        b.pending.removeAll { $0.isQuestion }
+        for p in questions { p.resolve(false) }
     }
 
     func restoreBody(template: Template, name: String, at p: V2) -> SoftBody {
@@ -871,17 +916,25 @@ final class World {
         }
     }
 
-    func remove(_ b: SoftBody) {
-        var best: String?
-        var bestD: Float = .infinity
-        for l in lumps {
-            let same: Float = l.template.id == b.template.id ? 0 : 100000
-            let d = len(l.com - b.com) + same
-            if d < bestD { bestD = d; best = l.template.id }
+    private func splash(_ b: SoftBody) {
+        let r = b.radius * max(b.scale, 0.6)
+        for k in 0..<16 {
+            let a = Float(k) / 16 * 2 * .pi + Float.random(in: -0.25...0.25)
+            let dir = V2(cos(a), sin(a))
+            let big = k % 3 == 0
+            transients.append(Transient(p: b.com + dir * r * Float.random(in: 0.2...0.55),
+                                        v: dir * Float.random(in: big ? 240...380 : 380...720),
+                                        r: r * (big ? Float.random(in: 0.24...0.32) : Float.random(in: 0.1...0.18)),
+                                        color: b.template.color, target: .splash(b.id)))
         }
-        b.absorbInto = best ?? "__none__"
+    }
+
+    func remove(_ b: SoftBody) {
+        b.absorbInto = "__pop__"
+        b.popTime = time
         b.grabbed = false
-        b.scaleTarget = 0
+        b.scaleTarget = b.scale * 1.35
+        pops.append(Pop(p: b.com, time: time, color: b.template.color, seed: b.id))
         for p in b.pending { p.resolve(false) }
         b.pending = []
         for other in bodies {
@@ -931,7 +984,11 @@ final class World {
 
     func pillLayout(_ b: SoftBody) -> [PillLayout] {
         guard let p = b.pending.first else { return [] }
-        let items: [(String, String, V3, Bool)] = p.approvalTitle == nil ? [
+        let items: [(String, String, V3, Bool)] = p.isQuestion ? p.options.map { o in
+            (World.clipPill(o.label), "checkmark.circle.fill", p.color,
+             ["Recommended", "推奨", "おすすめ"].contains { o.label.contains($0) })
+        } + [("ターミナルで答える", "terminal.fill", V3(0.5, 0.52, 0.6), false)]
+        : p.approvalTitle == nil ? [
             ("\(p.targetName) に送る", "paperplane.fill", p.color, true),
             ("止める", "hand.raised.fill", V3(0.5, 0.52, 0.6), false),
         ] : [

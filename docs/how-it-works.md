@@ -35,7 +35,7 @@
 
 ## スライムの大きさ
 
-フックの入力に入っている `transcript_path`（会話の記録ファイル）の末尾 2MB を読み、最後のメインエージェントの応答の `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` をコンテキストの量とする。サブエージェントの応答は数えない。0 トークンで半径 0.8 倍、20 万トークンで 1.5 倍になり、それより先は大きくならない。フックが届くたびに読み直すので、`/compact` の後は次の応答でしぼむ。agy のスライムは記録ファイルの形式が違うので、大きさが変わらない。
+フックの入力に入っている `transcript_path`（会話の記録ファイル）の末尾 2MB を読み、最後のメインエージェントの応答の `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` をコンテキストの量とする。サブエージェントの応答は数えない。0 トークンで半径 0.8 倍、20 万トークンで 1.5 倍になり、それより先は大きくならない。フックが届くたびに読み直すので、`/compact` の後は次の応答でしぼむ。アプリの起動時にも、保存してある会話の記録（`~/.claude/projects/*/<セッション ID>.jsonl`）から一度読むので、起動前のスライムも会話の量に合った大きさで出る。agy のスライムは記録ファイルの形式が違うので、大きさが変わらない。
 
 ## 島とスライムの作業ディレクトリ
 
@@ -105,7 +105,8 @@ Claude Code の[セッション間メッセージ](https://code.claude.com/docs/
 - 各セッションは `--settings` で次のフックを付けて起動する。フックはすべて command 型で、`curl` でアプリ内の HTTP サーバー（`localhost`）を呼ぶ。HTTP 型のフックはサンドボックスを有効にすると届かないことがあったため使っていない
   - `PreToolUse`（`SendMessage`）: 矢印のない相手とスライム以外への送信を拒否する。矢印のある相手への送信は、スライムの下に「送る / 止める」を出して人の判断を待つ。矢印が「承認なしで送る」なら、そのまま許可する
   - `PostToolUse`（`SendMessage`）: 送信が済んだら、糸を伝う滴を流す
-  - `PreToolUse`（すべてのツール）、`Notification`、`Stop`: スライムの吹き出しに、いまの作業を出す
+  - `PreToolUse`（`AskUserQuestion`）: 質問が 1 つで、選択肢が 4 つまでで、複数を選ばないときは、スライムの下に選択肢を出して人の選択を待つ。選ばれたら `permissionDecision: "allow"` と、選んだ答えを `answers` に入れた `updatedInput` を返し、ターミナルを出さずに答える。「ターミナルで答える」を押したときと、スライムのパネルを開いたときは、何も決めずに返してターミナルに質問を出す。条件に合わない質問も、そのままターミナルに出す
+  - `PreToolUse`（すべてのツール）、`Notification`、`Stop`: スライムの吹き出しに、いまの作業を出す。サンドボックスがオンのスライムで、Bash の入力に `dangerouslyDisableSandbox: true` があれば、膜の右上を開く。`PostToolUse`、次のツール、`Stop`、`StopFailure`、次の依頼のどれかが届いたら閉じる
   - `UserPromptSubmit`: そのスライムの送り先と受け取り元を、追加のコンテキストとして渡す
   - `SessionStart`: 受信箱の準備ができたことをアプリに知らせる。送り先のセッションが動いていなければ自動で起動し、準備ができてから送信を許可する
 - `--append-system-prompt` には、テンプレートの AGENTS.md の前に、引き継ぎの書き方（目的・成果物の場所・依頼内容）を書いた Slime Factory の説明を付ける

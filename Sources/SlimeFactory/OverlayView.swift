@@ -127,17 +127,6 @@ struct OverlayView: View {
                         let lp = CGPoint(x: CGFloat(p.x - tan.y * 16), y: CGFloat(p.y + tan.x * 16))
                         ctx.draw(Text("自動").font(.system(size: 9, weight: .heavy)).foregroundColor(.white.opacity(0.85)), at: lp)
                     }
-                    let a = atan2(tan.y, tan.x)
-                    var path = Path()
-                    path.move(to: CGPoint(x: 6, y: 0))
-                    path.addLine(to: CGPoint(x: -4, y: -5.5))
-                    path.addLine(to: CGPoint(x: -1.5, y: 0))
-                    path.addLine(to: CGPoint(x: -4, y: 5.5))
-                    path.closeSubpath()
-                    let tr = CGAffineTransform(translationX: CGFloat(p.x), y: CGFloat(p.y)).rotated(by: CGFloat(a))
-                    var c = ctx
-                    c.addFilter(.shadow(color: .black.opacity(0.5), radius: 2, y: 1))
-                    c.fill(path.applying(tr), with: .color(.white.opacity(0.92 * Double(rope.alpha))))
                 }
             }
             .allowsHitTesting(false)
@@ -145,8 +134,9 @@ struct OverlayView: View {
             ForEach(world.bodies.filter { $0.sandboxMode.boxed && $0.absorbInto == nil }, id: \.id) { b in
                 let d = CGFloat(b.radius * b.scale) * 2.8
                 let age = world.time - b.domeTime - 0.35
-                SandboxDomeView(inner: b.sandboxMode == .strict ? springPop(age * 1.6 - 0.25) : 0)
-                    .frame(width: d, height: d)
+                SandboxDomeView(strict: b.sandboxMode == .strict ? springPop(age * 1.6 - 0.25) : 0,
+                                open: b.escapeTime.map { springPop((world.time - $0) * 1.8) * (1 - CGFloat(clampf((world.time - (b.escapeEnd ?? .infinity)) * 3, 0, 1))) } ?? 0)
+                    .frame(width: d + SandboxDomeView.pad * 2, height: d + SandboxDomeView.pad * 2)
                     .scaleEffect(springPop(age * 1.6))
                     .opacity(Double(clampf(age * 4, 0, 1)))
                     .position(x: CGFloat(b.com.x), y: CGFloat(b.com.y))
@@ -243,15 +233,22 @@ struct OverlayView: View {
             }
 
 
+            ForEach(Array(world.pops.enumerated()), id: \.offset) { _, pop in
+                ConfettiView(age: CGFloat(world.time - pop.time), color: Color(pop.color), seed: pop.seed)
+                    .frame(width: ConfettiView.size, height: ConfettiView.size)
+                    .position(x: CGFloat(pop.p.x), y: CGFloat(pop.p.y))
+            }
+
             ForEach(world.bodies.filter { !$0.pending.isEmpty }, id: \.id) { b in
                 let pills = world.pillLayout(b)
                 if let first = pills.first, let p = b.pending.first {
+                    let hovered = world.hoverPill.flatMap { $0.0 == b.id && $0.1 < p.options.count ? p.options[$0.1].detail : nil }
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
-                            Image(systemName: p.approvalTitle == nil ? "envelope.fill" : "exclamationmark.shield.fill")
+                            Image(systemName: p.isQuestion ? "questionmark.bubble.fill" : p.approvalTitle == nil ? "envelope.fill" : "exclamationmark.shield.fill")
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(p.approvalTitle == nil ? Color(p.color) : Color.orange)
-                            Text(p.approvalTitle ?? "\(p.targetName) へのメッセージ")
+                                .foregroundStyle(p.approvalTitle == nil || p.isQuestion ? Color(p.color) : Color.orange)
+                            Text(p.isQuestion ? (p.summary.isEmpty ? "質問" : p.summary) : p.approvalTitle ?? "\(p.targetName) へのメッセージ")
                                 .font(.system(size: 11, weight: .bold))
                             Spacer(minLength: 0)
                             if b.pending.count > 1 {
@@ -260,7 +257,7 @@ struct OverlayView: View {
                                     .opacity(0.6)
                             }
                         }
-                        Text(p.message)
+                        Text(hovered.flatMap { $0.isEmpty ? nil : $0 } ?? p.message)
                             .font(.system(size: 11))
                             .lineLimit(3)
                             .opacity(0.85)
@@ -367,7 +364,7 @@ struct OverlayView: View {
 
     private func statusText(_ b: SoftBody) -> String {
         let dots = String(repeating: "・", count: Int(world.time * 3) % 3 + 1)
-        if let p = b.pending.first { return p.approvalTitle == nil ? "送信の承認待ち" : "設定変更の承認待ち" }
+        if let p = b.pending.first { return p.isQuestion ? "質問の答え待ち" : p.approvalTitle == nil ? "送信の承認待ち" : "設定変更の承認待ち" }
         if let badge = b.badge { return badge.kind.label }
         switch b.status {
         case .received: return "メッセージを受信"
@@ -571,27 +568,145 @@ struct CrownView: View {
 }
 
 struct SandboxDomeView: View {
-    let inner: CGFloat
+    static let pad: CGFloat = 30
+    let strict: CGFloat
+    var open: CGFloat = 0
 
     var body: some View {
         Canvas { ctx, size in
-            let rect = CGRect(origin: .zero, size: size).insetBy(dx: 2, dy: 2)
+            let w0 = size.width - SandboxDomeView.pad * 2
+            let rect = CGRect(origin: .zero, size: size).insetBy(dx: 2 + SandboxDomeView.pad, dy: 2 + SandboxDomeView.pad)
             let c = CGPoint(x: size.width / 2, y: size.height / 2)
+            let r = rect.width / 2
             let ball = Path(ellipseIn: rect)
+            let sd = Double(strict)
+            let tint = Color(red: 0.75 - 0.33 * sd, green: 0.92 - 0.2 * sd, blue: 1)
             ctx.fill(ball, with: .radialGradient(
-                Gradient(colors: [.white.opacity(0.0), .white.opacity(0.04), Color(red: 0.75, green: 0.92, blue: 1).opacity(0.28)]),
-                center: c, startRadius: 0, endRadius: size.width / 2))
-            ctx.stroke(ball, with: .color(.white.opacity(0.6)), lineWidth: 1.6)
-            if inner > 0.01 {
-                let ir = (size.width / 2 - 9) * inner
-                ctx.stroke(Path(ellipseIn: CGRect(x: c.x - ir, y: c.y - ir, width: ir * 2, height: ir * 2)),
-                           with: .color(.white.opacity(0.5)), lineWidth: 1.6)
+                Gradient(colors: [.white.opacity(0.0), tint.opacity(0.04 + 0.08 * sd), tint.opacity(0.28 + 0.2 * sd)]),
+                center: c, startRadius: 0, endRadius: r))
+            if strict > 0.01 {
+                ctx.drawLayer { l in
+                    l.clip(to: ball)
+                    let hex: CGFloat = 7.5
+                    let w = hex * sqrt(3)
+                    let reach = r * .pi / 2
+                    func project(_ q: CGPoint) -> CGPoint? {
+                        let d = hypot(q.x, q.y)
+                        if d >= reach { return nil }
+                        if d < 1e-3 { return c }
+                        let k = r * sin(d / r) / d
+                        return CGPoint(x: c.x + q.x * k, y: c.y + q.y * k)
+                    }
+                    var row = 0
+                    var y = -reach
+                    while y <= reach {
+                        var x = -reach + (row % 2 == 0 ? 0 : w / 2)
+                        while x <= reach {
+                            var path = Path()
+                            var ok = true
+                            for i in 0..<6 {
+                                let a = CGFloat(i) * .pi / 3 + .pi / 6
+                                guard let p = project(CGPoint(x: x + cos(a) * hex, y: y + sin(a) * hex)) else { ok = false; break }
+                                if i == 0 { path.move(to: p) } else { path.addLine(to: p) }
+                            }
+                            if ok {
+                                path.closeSubpath()
+                                let t = min(hypot(x, y) / reach, 1)
+                                l.stroke(path, with: .color(Color(red: 0.8, green: 0.92, blue: 1).opacity(sd * Double(0.12 + 0.4 * t * t))), lineWidth: 0.9)
+                            }
+                            x += w
+                        }
+                        y += hex * 1.5
+                        row += 1
+                    }
+                }
+            }
+            let gap = Double(min(max(open, 0), 1.3)) * 34
+            let rim = Color(red: 1 - 0.25 * sd, green: 1 - 0.1 * sd, blue: 1).opacity(0.6 + 0.15 * sd)
+            if gap > 0.5 {
+                var arc = Path()
+                arc.addArc(center: c, radius: r, startAngle: .degrees(315 + gap), endAngle: .degrees(315 - gap + 360), clockwise: false)
+                ctx.stroke(arc, with: .color(rim), style: StrokeStyle(lineWidth: 1.6 + 0.8 * strict, lineCap: .round))
+                for i in 0..<3 {
+                    let f = CGFloat(i)
+                    let dist = r + (6 + f * 11) * open
+                    let ang = (-45 + (f - 1) * 16) * .pi / 180
+                    let dr: CGFloat = 4 - f * 0.9
+                    ctx.fill(Path(ellipseIn: CGRect(x: c.x + cos(ang) * dist - dr, y: c.y + sin(ang) * dist - dr, width: dr * 2, height: dr * 2)),
+                             with: .color(.white.opacity(Double(0.75 - f * 0.18) * Double(min(open, 1)))))
+                }
+            } else {
+                ctx.stroke(ball, with: .color(rim), lineWidth: 1.6 + 0.8 * strict)
             }
             var hl = Path()
-            hl.addArc(center: c, radius: size.width * 0.4, startAngle: .degrees(195), endAngle: .degrees(245), clockwise: false)
+            hl.addArc(center: c, radius: w0 * 0.4, startAngle: .degrees(195), endAngle: .degrees(245), clockwise: false)
             ctx.stroke(hl, with: .color(.white.opacity(0.75)), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
-            let dot = CGRect(x: c.x - size.width * 0.27, y: c.y - size.height * 0.39, width: 5, height: 5)
+            let dot = CGRect(x: c.x - w0 * 0.27, y: c.y - w0 * 0.39, width: 5, height: 5)
             ctx.fill(Path(ellipseIn: dot), with: .color(.white.opacity(0.8)))
         }
+    }
+}
+
+struct ConfettiView: View {
+    static let size: CGFloat = 640
+    let age: CGFloat
+    let color: Color
+    let seed: Int
+
+    private static let palette: [Color] = [
+        Color(red: 1, green: 0.36, blue: 0.5), Color(red: 1, green: 0.8, blue: 0.2), Color(red: 0.3, green: 0.85, blue: 1),
+        Color(red: 0.45, green: 0.9, blue: 0.45), Color(red: 0.7, green: 0.5, blue: 1), Color(red: 1, green: 0.6, blue: 0.25),
+    ]
+
+    private func rand(_ i: Int, _ k: Int) -> CGFloat {
+        var x = UInt64(truncatingIfNeeded: seed &* 7919 &+ i &* 104_729 &+ k &* 1_299_709)
+        x ^= x >> 33
+        x = x &* 0xff51afd7ed558ccd
+        x ^= x >> 33
+        x = x &* 0xc4ceb9fe1a85ec53
+        x ^= x >> 33
+        return CGFloat(x % 10_000) / 10_000
+    }
+
+    var body: some View {
+        Canvas { ctx, size in
+            let c = CGPoint(x: size.width / 2, y: size.height / 2)
+            let t = age
+            if t < 0.35 {
+                let k = t / 0.35
+                let ring = 20 + 90 * (1 - pow(1 - k, 3))
+                ctx.stroke(Path(ellipseIn: CGRect(x: c.x - ring, y: c.y - ring, width: ring * 2, height: ring * 2)),
+                           with: .color(.white.opacity(Double(0.55 * (1 - k)))), lineWidth: 3 * (1 - k) + 0.5)
+            }
+            for i in 0..<14 {
+                let a = rand(i, 1) * 2 * .pi
+                let sp = 160 + rand(i, 2) * 220
+                let drag = (1 - exp(-3 * t)) / 3
+                let p = CGPoint(x: c.x + cos(a) * sp * drag, y: c.y + sin(a) * sp * drag + 260 * t * t)
+                let r = (3 + rand(i, 3) * 5) * max(0, 1 - t * 1.4)
+                if r > 0.2 {
+                    ctx.fill(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)), with: .color(color.opacity(0.9)))
+                }
+            }
+            let fade = Double(max(0, min(1, (2.2 - t) / 0.6)))
+            for i in 0..<56 {
+                let a = -.pi / 2 + (rand(i, 4) - 0.5) * 2.6
+                let sp = 420 + rand(i, 5) * 520
+                let drag = (1 - exp(-2.2 * t)) / 2.2
+                let fall = 160 * t * t
+                let sway = sin(t * (5 + rand(i, 6) * 4) + rand(i, 7) * 6) * 10 * t
+                let p = CGPoint(x: c.x + cos(a) * sp * drag + sway, y: c.y + sin(a) * sp * drag + fall)
+                let spin = t * (6 + rand(i, 8) * 10) + rand(i, 9) * 6
+                let w = 4 + rand(i, 10) * 3, h = 7 + rand(i, 11) * 5
+                let flip = abs(cos(spin * 0.7))
+                var piece = ctx
+                piece.translateBy(x: p.x, y: p.y)
+                piece.rotate(by: .radians(Double(spin)))
+                let col = i % 5 == 0 ? color : Self.palette[i % Self.palette.count]
+                piece.fill(Path(CGRect(x: -w / 2, y: -h * flip / 2, width: w, height: max(h * flip, 0.8))),
+                           with: .color(col.opacity(fade * (0.75 + 0.25 * Double(flip)))))
+            }
+        }
+        .allowsHitTesting(false)
     }
 }

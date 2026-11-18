@@ -783,6 +783,7 @@ struct ContentView: View {
             }
             let canvas = CanvasStore(store: store)
             if let saved = canvas.load() { CanvasStore.restore(saved, into: world) }
+            bridge.preloadContext(world.bodies)
             sharedSaveCanvas = { canvas.save(world: world) }
             Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in canvas.save(world: world) }
         }
@@ -814,6 +815,7 @@ struct ContentView: View {
         }
         world.onOpenBody = { b in
             b.speech = nil
+            world.releaseQuestions(b)
             if let badge = b.badge, !badge.kind.needsAttention { world.clearBadge(b) }
             guard sessions.start(b, store: store) else { return }
             world.cancelInteraction()

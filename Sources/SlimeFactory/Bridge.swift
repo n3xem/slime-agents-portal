@@ -21,6 +21,19 @@ final class FactoryBridge {
         }
     }
 
+    func preloadContext(_ bodies: [SoftBody]) {
+        let items = bodies.compactMap { b in b.savedSession.map { (b.id, $0.sessionId) } }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            for (id, sessionId) in items {
+                guard let path = CanvasStore.transcriptPath(sessionId), let tokens = Self.contextTokens(transcript: path) else { continue }
+                DispatchQueue.main.async {
+                    guard let b = self?.world.body(id), b.contextTokens == 0 else { return }
+                    b.contextTokens = tokens
+                }
+            }
+        }
+    }
+
     static func contextTokens(transcript path: String) -> Int? {
         guard let fh = FileHandle(forReadingAtPath: path) else { return nil }
         defer { try? fh.close() }
@@ -51,6 +64,7 @@ final class FactoryBridge {
         switch event {
         case "prompt":
             world.clearBadge(b)
+            closeEscape(b)
             if let prompt = body["prompt"] as? String {
                 let line = Self.firstLine(prompt)
                 if b.title == nil, !b.isConductor, let t = Self.shortTitle(prompt) { b.title = t }
@@ -59,12 +73,20 @@ final class FactoryBridge {
             }
             respond(context(for: b))
         case "pre": preSend(b, body, respond)
+        case "ask": ask(b, body, respond)
         case "post": postSend(b, body, respond)
         case "tool":
             let tool = body["tool_name"] as? String ?? ""
             let input = body["tool_input"] as? [String: Any] ?? [:]
             let (text, symbol) = Self.describeTool(tool, input)
             b.activity = Activity(text: text, symbol: symbol, time: world.time)
+            if tool == "Bash", input["dangerouslyDisableSandbox"] as? Bool == true, b.sandboxMode == .on {
+                b.activity = Activity(text: "サンドボックスの外で" + text, symbol: "exclamationmark.triangle.fill", time: world.time)
+                b.escapeTime = world.time
+                b.escapeEnd = nil
+            } else {
+                closeEscape(b)
+            }
             switch tool {
             case "AskUserQuestion":
                 let q = ((input["questions"] as? [[String: Any]])?.first?["question"] as? String) ?? ""
@@ -78,9 +100,11 @@ final class FactoryBridge {
             }
             respond(nil)
         case "posttool":
+            closeEscape(b)
             if b.badge?.kind == .permission { world.clearBadge(b) }
             respond(nil)
         case "stopfail":
+            closeEscape(b)
             let msg = (body["error"] as? String) ?? (body["message"] as? String) ?? ""
             world.setBadge(b, .error, summary: Self.firstLine(msg))
             respond(nil)
@@ -100,6 +124,7 @@ final class FactoryBridge {
             }
             respond(nil)
         case "stop":
+            closeEscape(b)
             let last = body["last_assistant_message"] as? String ?? ""
             if !b.reportedThisTurn && b.badge == nil && !last.isEmpty {
                 b.activity = Activity(text: Self.firstLine(last), symbol: "checkmark.circle.fill", time: world.time, finished: true)
@@ -252,6 +277,40 @@ final class FactoryBridge {
             }
         }
         world.addPending(pending, to: b)
+    }
+
+    private func closeEscape(_ b: SoftBody) {
+        if b.escapeTime != nil && b.escapeEnd == nil { b.escapeEnd = world.time }
+    }
+
+    private func ask(_ b: SoftBody, _ body: [String: Any], _ respond: @escaping HookServer.Respond) {
+        let input = body["tool_input"] as? [String: Any] ?? [:]
+        guard let questions = input["questions"] as? [[String: Any]], questions.count == 1, let q = questions.first,
+              q["multiSelect"] as? Bool != true, let text = q["question"] as? String,
+              let opts = q["options"] as? [[String: Any]], (1...4).contains(opts.count) else {
+            respond(nil)
+            return
+        }
+        let labels = opts.compactMap { $0["label"] as? String }
+        guard labels.count == opts.count else {
+            respond(nil)
+            return
+        }
+        let p = PendingSend(targetId: b.id, targetName: b.displayName, ropeId: -1, message: text,
+                            summary: q["header"] as? String ?? "", color: b.template.color) { _ in respond(nil) }
+        p.options = zip(labels, opts).map { ($0, $1["description"] as? String ?? "") }
+        p.onPick = { [weak self, weak b] i in
+            var updated = input
+            updated["answers"] = [text: labels[i]]
+            if let self, let b { self.world.clearBadge(b) }
+            respond(["hookSpecificOutput": [
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
+                "permissionDecisionReason": "Slime Factory: 人が画面で「\(labels[i])」を選びました。",
+                "updatedInput": updated,
+            ]])
+        }
+        world.addPending(p, to: b)
     }
 
     private func ensureRunning(_ target: SoftBody, then: @escaping () -> Void) {

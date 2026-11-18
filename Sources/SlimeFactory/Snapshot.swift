@@ -229,6 +229,16 @@ final class SnapshotRunner {
             advance(0.6)
             capture("12_approval")
             world.choose(b, 1)
+            let q = PendingSend(targetId: b.id, targetName: b.displayName, ropeId: -1,
+                                message: "失敗している 3 件のテストは、今回の変更と関係なさそうです。直してから進めますか？",
+                                summary: "失敗中のテスト", color: b.template.color) { _ in }
+            q.options = [("直してから進める (Recommended)", "3 件を先に直し、すべて通ってからレビューへ送ります"),
+                         ("このまま進める", "失敗はレビューの依頼に書き添えます")]
+            q.onPick = { _ in }
+            world.addPending(q, to: b)
+            advance(0.6)
+            capture("12_question")
+            world.choose(b, 0)
         }
         world.zoom(by: 0.6, around: V2(720, 520))
         advance(0.4)

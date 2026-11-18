@@ -138,8 +138,26 @@ final class Renderer {
         for t in w.transients {
             if case .lump = t.target { s.blobs.append(GBlob(p: t.p, r: t.r, c: SIMD4<Float>(t.color, 1))) }
         }
-        for b in w.bodies where b.absorbInto != nil { appendBody(b, color: b.template.color, into: &s.blobs) }
+        for b in w.bodies where b.absorbInto != nil && b.popTime == nil { appendBody(b, color: b.template.color, into: &s.blobs) }
         addGroup(&s, kind: 2, start: start0, fullTop: true, width: w.size.x)
+
+        var splashIds = Set(w.bodies.filter { $0.popTime != nil }.map(\.id))
+        for t in w.transients { if case .splash(let id) = t.target { splashIds.insert(id) } }
+        for id in splashIds.sorted() {
+            let st = s.blobs.count
+            var center = w.pops.first { $0.seed == id }?.p ?? V2(0, 0)
+            if let b = w.body(id), b.popTime != nil {
+                appendBody(b, color: b.template.color, into: &s.blobs)
+                center = b.com
+            }
+            for t in w.transients {
+                if case .splash(let sid) = t.target, sid == id {
+                    s.blobs.append(GBlob(p: S(t.p), r: t.r * zoom, c: SIMD4<Float>(t.color, 1)))
+                }
+            }
+            let sc = S(center)
+            addGroup(&s, kind: 0, start: st, color: SIMD4<Float>(sc.x, sc.y, 0, 0))
+        }
 
         for b in w.bodies where b.absorbInto == nil {
             let st = s.blobs.count

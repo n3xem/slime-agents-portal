@@ -145,7 +145,7 @@ final class FactoryMCP {
                          "properties": configProps.merging([
                              "template": ["type": "string", "description": "テンプレートの id または名前"],
                              "island": ["type": "string", "description": "置く島のパスまたは名前"],
-                             "name": ["type": "string", "description": "スライムの名前。SendMessage の宛先になる。省略時はテンプレート名"],
+                             "name": ["type": "string", "description": "スライムの名前。画面に出て、SendMessage の宛先にもなる。役割と対象がわかる短い名前（例: 認証の実装、決済APIのレビュー）を付ける。文字・数字・-・_ 以外は - に置き換えて宛先にする。同じ名前があれば末尾に -2 などを付ける。省略時はテンプレート名"],
                              "start": ["type": "boolean", "description": "true ならセッションをすぐ起動する"],
                          ]) { a, _ in a },
                          "required": ["template"]]],
@@ -362,7 +362,7 @@ final class FactoryMCP {
         if b.isConductor { d["role"] = "管理" }
         if let a = b.activity { d["activity"] = a.text }
         if let t = b.topic { d["topic"] = t }
-        if !b.pending.isEmpty { d["pending_sends"] = b.pending.map { ["to": $0.targetName, "message": $0.message] } }
+        if b.pending.contains(where: { !$0.isQuestion }) { d["pending_sends"] = b.pending.filter { !$0.isQuestion }.map { ["to": $0.targetName, "message": $0.message] } }
         return d
     }
 

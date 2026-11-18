@@ -226,9 +226,15 @@ fragment float4 fmain(VOut in [[stage_in]],
             e.bevel = br;
             float L = gr.params.x;
             float autoSend = gr.params.z;
-            float ph = fract(bu * L / (90.0 - autoSend * 40.0) - u.time * (1.15 + autoSend * 1.4));
-            float pulse = smoothstep(0.0, 0.12, ph) * (1.0 - smoothstep(0.12, 0.42, ph));
-            e.emis = mix(e.col, float3(1.0), 0.55) * pulse * (0.75 + autoSend * 0.35) * alpha;
+            float s = bu * L;
+            float v = clamp(1.0 - bestS / max(br, 1e-3), 0.0, 1.0);
+            float ends = smoothstep(30.0, 52.0, s) * smoothstep(30.0, 52.0, L - s);
+            float t = fract(s / 64.0) * 64.0 - 32.0;
+            float x = t + br * 1.1 * v;
+            float band = smoothstep(-6.0, -5.0, x) * (1.0 - smoothstep(-1.5, -0.5, x));
+            float band2 = smoothstep(1.0, 2.0, x) * (1.0 - smoothstep(5.5, 6.5, x));
+            float m = max(band, autoSend > 0.5 ? band2 : 0.0) * (1.0 - smoothstep(0.75, 0.92, v));
+            e.col = mix(e.col, mix(e.col, float3(1.0), 0.75), m * ends);
             e.params = float4(0.0);
         } else {
             float f = 0.0; float2 g = float2(0.0); float3 col = float3(0.0); float rs = 0.0;

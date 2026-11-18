@@ -80,6 +80,9 @@ final class PendingSend {
     let summary: String
     let color: V3
     var approvalTitle: String?
+    var options: [(label: String, detail: String)] = []
+    var onPick: ((Int) -> Void)?
+    var isQuestion: Bool { !options.isEmpty }
     private var resolver: ((Bool) -> Void)?
 
     init(targetId: Int, targetName: String, ropeId: Int, message: String, summary: String, color: V3,
@@ -96,6 +99,13 @@ final class PendingSend {
 
     func resolve(_ ok: Bool) {
         resolver?(ok)
+        resolver = nil
+        onPick = nil
+    }
+
+    func pick(_ index: Int) {
+        onPick?(index)
+        onPick = nil
         resolver = nil
     }
 }
@@ -137,6 +147,7 @@ final class SoftBody {
     var running: Float = 0
 
     var absorbInto: String?
+    var popTime: Float?
     var sessionState: SessionState = .none
     var status: BodyStatus = .idle
     var statusTime: Float = 0
@@ -151,6 +162,8 @@ final class SoftBody {
     var dirName = ""
     var sandboxMode: SandboxMode = .inherit
     var domeTime: Float = 0
+    var escapeTime: Float?
+    var escapeEnd: Float?
     var usesWorktree = false
     var dirMismatch = false
     var islandId: Int?
@@ -270,7 +283,7 @@ final class SoftBody {
                 let w = grabWeights[i]
                 acc += 620 * w * (target + grabOffsets[i] - x[i]) + 34 * w * (world.mouseVel - v[i])
             }
-            if absorbInto != nil {
+            if absorbInto != nil && popTime == nil {
                 acc += 140 * (target - com) - 6 * vcom
             }
             if let home = homeTarget, !grabbed, absorbInto == nil {

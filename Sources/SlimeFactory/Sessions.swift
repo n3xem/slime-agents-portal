@@ -266,6 +266,7 @@ final class ClaudeSession: NSObject, LocalProcessTerminalViewDelegate, Observabl
                 "SessionStart": [["hooks": [http("start", timeout: 5)]]],
                 "PreToolUse": [
                     ["matcher": "^SendMessage$", "hooks": [http("pre", timeout: 1800, block: true)]],
+                    ["matcher": "^AskUserQuestion$", "hooks": [http("ask", timeout: 1800)]],
                     ["matcher": "*", "hooks": [http("tool", timeout: 5)]],
                 ],
                 "PostToolUse": [
@@ -294,6 +295,7 @@ final class ClaudeSession: NSObject, LocalProcessTerminalViewDelegate, Observabl
             - スライムの操作には slime-factory MCP サーバーのツール（list_templates、list_islands、create_island、list_bubbles、create_bubble、configure_bubble、connect_bubbles、disconnect_bubbles、start_bubble）を使います。
             - 人に Markdown ファイルを「開いて」と頼まれたときや、書いた文書を見てほしいときは、slime-factory MCP サーバーの open_file に絶対パスを渡して、Slime Factory の画面のエディタで開きます。
             - 定期的に見回っていて人に知らせたいことを見つけたときは、slime-factory MCP サーバーの say に短い文を渡して、画面の管理スライムの横に吹き出しを出します。
+            - スライムを作るときは、create_bubble の name に、役割と対象がわかる短い名前（例: 認証の実装、決済APIのレビュー）を付けます。同じテンプレートのスライムが並んでも見分けられるようにするためです。
             - 画面上の「島」はリポジトリのディレクトリを表します。島の中のスライムは、その島のディレクトリで起動します。リポジトリごとに島を作り、スライムはその島に置きます。
             - スライムの作業ディレクトリは、人の指示とリポジトリの場所から決めます。場所がわからないときは、手元を調べるか人に聞きます。
             - 同じリポジトリを並行して編集するスライムが複数あるときは、worktree を使うかを検討します。
