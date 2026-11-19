@@ -70,7 +70,7 @@ final class FactoryMCP {
             return ok([
                 "protocolVersion": params["protocolVersion"] as? String ?? "2025-06-18",
                 "capabilities": ["tools": [String: Any]()],
-                "serverInfo": ["name": "slime-factory", "version": "0.2.0"],
+                "serverInfo": ["name": "slime-factory", "version": "0.3.0"],
             ])
         case "ping":
             return ok([String: Any]())
