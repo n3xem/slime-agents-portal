@@ -172,7 +172,7 @@ struct TerminalPanel: View {
             HStack(spacing: 12) {
                 ZStack(alignment: .bottomTrailing) {
                     TemplateBadge(symbol: session.template.symbol, color: color)
-                    EngineMark(engine: .claude, size: 16).offset(x: 4, y: 4)
+                    ClaudeMark(size: 16).offset(x: 4, y: 4)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -353,34 +353,6 @@ struct TemplateEditorView: View {
         )
     }
 
-    private var engineBinding: Binding<Engine> {
-        Binding(
-            get: { store.template(id)?.engine ?? .claude },
-            set: { v in
-                guard let i = store.templates.firstIndex(where: { $0.id == id }), (store.templates[i].engine ?? .claude) != v else { return }
-                var t = store.templates[i]
-                t.engine = v == .claude ? nil : v
-                t.model = nil
-                t.effort = nil
-                if v == .agy {
-                    t.sandbox = .on
-                    t.permissionMode = "accept-edits"
-                } else {
-                    t.sandbox = nil
-                    t.permissionMode = nil
-                }
-                store.templates[i] = t
-            }
-        )
-    }
-
-    private var agySandboxBinding: Binding<Bool> {
-        Binding(
-            get: { (store.template(id)?.sandbox ?? .on) != .off },
-            set: { v in if let i = store.templates.firstIndex(where: { $0.id == id }) { store.templates[i].sandbox = v ? .on : .off } }
-        )
-    }
-
     private var modelBinding: Binding<String> {
         Binding(
             get: { store.template(id)?.model ?? "" },
@@ -398,8 +370,6 @@ struct TemplateEditorView: View {
         )
     }
 
-    @State private var agyModels: [(value: String, label: String)] = []
-
     private var workdirBinding: Binding<String> {
         Binding(
             get: { store.template(id)?.workdir ?? "" },
@@ -415,7 +385,7 @@ struct TemplateEditorView: View {
                 HStack(alignment: .center, spacing: 16) {
                     ZStack(alignment: .bottomTrailing) {
                         TemplateBadge(symbol: t.symbol, color: t.swiftColor, size: 56)
-                        EngineMark(engine: t.engine ?? .claude, size: 22).offset(x: 5, y: 5)
+                        ClaudeMark(size: 22).offset(x: 5, y: 5)
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         TextField("テンプレート名", text: binding(\.name, ""))
@@ -464,60 +434,28 @@ struct TemplateEditorView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 12) {
-                        Text("エンジン").font(.system(size: 12, weight: .semibold))
-                        Picker("エンジン", selection: engineBinding) {
-                            ForEach(Engine.allCases, id: \.self) { e in
-                                Text(e.label).tag(e)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                        .fixedSize()
-                        EngineMark(engine: t.engine ?? .claude, size: 22)
-                    }
-                    Text((t.engine ?? .claude) == .agy
-                         ? "Antigravity CLI を端末で動かします。Claude Code のスライムとは矢印でつなげず、管理セッションからもメッセージは送れません。"
-                         : "Claude Code を端末で動かします。")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
                     Text("起動の設定（スライムごとに右クリックで上書きできます）").font(.system(size: 12, weight: .semibold))
-                    if (t.engine ?? .claude) == .agy {
-                        HStack(spacing: 16) {
-                            Toggle("サンドボックス（--sandbox）", isOn: agySandboxBinding)
-                                .fixedSize()
-                            Picker("モード", selection: permissionBinding) {
-                                ForEach(AgyModes.all, id: \.value) { Text($0.label).tag($0.value) }
-                            }
+                    HStack(spacing: 16) {
+                        Picker("サンドボックス", selection: sandboxBinding) {
+                            Text("全体の既定（\(store.defaultSandbox.short)）").tag(SandboxMode?.none)
+                            ForEach(SandboxMode.allCases, id: \.self) { Text($0.label).tag(SandboxMode?.some($0)) }
                         }
-                        .font(.system(size: 12))
-                    } else {
-                        HStack(spacing: 16) {
-                            Picker("サンドボックス", selection: sandboxBinding) {
-                                Text("全体の既定（\(store.defaultSandbox.short)）").tag(SandboxMode?.none)
-                                ForEach(SandboxMode.allCases, id: \.self) { Text($0.label).tag(SandboxMode?.some($0)) }
-                            }
-                            Picker("権限モード", selection: permissionBinding) {
-                                ForEach(PermissionModes.all, id: \.value) { Text($0.label).tag($0.value) }
-                            }
+                        Picker("権限モード", selection: permissionBinding) {
+                            ForEach(PermissionModes.all, id: \.value) { Text($0.label).tag($0.value) }
                         }
-                        .font(.system(size: 12))
-                        HStack(spacing: 16) {
-                            Toggle("worktree を作って起動", isOn: worktreeBinding)
-                                .fixedSize()
-                            Picker("Chrome 連携", selection: chromeBinding) {
-                                Text("既定（指定しない）").tag(Bool?.none)
-                                Text("オン（--chrome）").tag(Bool?.some(true))
-                                Text("オフ（--no-chrome）").tag(Bool?.some(false))
-                            }
-                            .fixedSize()
-                        }
-                        .font(.system(size: 12))
                     }
+                    .font(.system(size: 12))
+                    HStack(spacing: 16) {
+                        Toggle("worktree を作って起動", isOn: worktreeBinding)
+                            .fixedSize()
+                        Picker("Chrome 連携", selection: chromeBinding) {
+                            Text("既定（指定しない）").tag(Bool?.none)
+                            Text("オン（--chrome）").tag(Bool?.some(true))
+                            Text("オフ（--no-chrome）").tag(Bool?.some(false))
+                        }
+                        .fixedSize()
+                    }
+                    .font(.system(size: 12))
                     HStack(spacing: 10) {
                         Text("モデル").font(.system(size: 12))
                         TextField("既定（空欄）", text: modelBinding)
@@ -526,7 +464,7 @@ struct TemplateEditorView: View {
                         Menu("候補") {
                             Button("既定（指定しない）") { modelBinding.wrappedValue = "" }
                             Divider()
-                            ForEach((t.engine ?? .claude) == .agy ? agyModels : ModelCatalog.claude, id: \.value) { m in
+                            ForEach(ModelCatalog.claude, id: \.value) { m in
                                 Button(m.value == m.label ? m.value : "\(m.label)（\(m.value)）") { modelBinding.wrappedValue = m.value }
                             }
                         }
@@ -538,18 +476,11 @@ struct TemplateEditorView: View {
                     }
                     .font(.system(size: 12))
                 }
-                .task(id: t.engine) {
-                    guard (t.engine ?? .claude) == .agy, agyModels.isEmpty else { return }
-                    let list = await Task.detached { ModelCatalog.agy() }.value
-                    agyModels = list
-                }
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline) {
                         Text("AGENTS.md").font(.system(size: 13, weight: .heavy, design: .monospaced))
-                        Text((t.engine ?? .claude) == .agy
-                             ? "新しい会話を始めるときに、最初の依頼（agy -i）として渡します。会話を続けているスライムには反映されません。"
-                             : "スライムのセッションを起動するときに --append-system-prompt で渡します。起動済みのセッションには反映されません。")
+                        Text("スライムのセッションを起動するときに --append-system-prompt で渡します。起動済みのセッションには反映されません。")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
@@ -635,7 +566,7 @@ struct SettingsView: View {
                             TemplateBadge(symbol: t.symbol, color: t.swiftColor, size: 24)
                             Text(t.name)
                             Spacer()
-                            EngineMark(engine: t.engine ?? .claude, size: 16)
+                            ClaudeMark(size: 16)
                         }
                         .padding(.vertical, 3)
                         .tag(t.id)

@@ -114,20 +114,6 @@ if let i = args.firstIndex(of: "--panel-snapshot"), i + 1 < args.count {
 
         render(TemplatePanel(store: store, id: store.templates[1].id, close: {}).padding(30), size: NSSize(width: 900, height: 720),
                name: "template_panel", wait: 1)
-        store.templates[4].engine = .agy
-        store.templates[4].sandbox = .on
-        store.templates[4].permissionMode = "accept-edits"
-        store.templates[4].model = "gemini-3.8-flash-medium"
-        store.templates[4].effort = "medium"
-        render(TemplatePanel(store: store, id: store.templates[4].id, close: {}).padding(30), size: NSSize(width: 900, height: 760),
-               name: "template_panel_agy", wait: 1.5)
-        var agyCfg = LaunchConfig.plain(store.settings.defaultWorkdir)
-        agyCfg.engine = .agy
-        agyCfg.sandbox = .on
-        agyCfg.permissionMode = "accept-edits"
-        agyCfg.model = "gemini-3.8-flash-medium"
-        render(AgyPanel(session: AgySession(bodyId: 9, name: "リリース", template: store.templates[4], config: agyCfg, conversationId: nil),
-                        close: {}).padding(30), size: NSSize(width: 1100, height: 520), name: "agy_panel", wait: 0.6)
         render(TerminalPanel(session: session, close: {}).padding(30), size: NSSize(width: 1100, height: 640),
                name: "terminal_panel", wait: 7)
         render(SettingsView(store: store), size: NSSize(width: 900, height: 640), name: "settings", wait: 1)
@@ -319,36 +305,6 @@ if let i = args.firstIndex(of: "--persist-test"), i + 1 < args.count {
         for x in w2.bodies {
             print("\(x.name) conductor=\(x.isConductor) pos=(\(Int(x.com.x)),\(Int(x.com.y))) cfg=\(x.config) session=\(x.savedSession?.sessionId ?? "-") out=\(w2.outgoing(x.id).map(\.name)) auto=\(w2.ropes.filter { $0.from == x.id && $0.autoSend }.count)")
         }
-    }
-    exit(0)
-}
-
-if let i = args.firstIndex(of: "--agy-test"), i + 1 < args.count {
-    MainActor.assumeIsolated {
-        _ = NSApplication.shared
-        let store = TemplateStore(persistent: false)
-        var tpl = store.templates[0]
-        tpl.engine = .agy
-        tpl.agents = ""
-        var cfg = LaunchConfig.plain(args[i + 1])
-        cfg.engine = .agy
-        cfg.sandbox = .on
-        cfg.permissionMode = "accept-edits"
-        let a = AgySession(bodyId: 1, name: "agy-test", template: tpl, config: cfg, conversationId: nil)
-        a.start()
-        let deadline = Date().addingTimeInterval(10)
-        while !a.exited && Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-        }
-        let state = a.state
-        let text = String(decoding: a.view.getTerminal().getBufferAsData(), as: UTF8.self)
-        a.terminate()
-        let end = Date().addingTimeInterval(5)
-        while !a.exited && Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
-        print("state=\(state) exited=\(a.exited) code=\(a.exitCode.map(String.init) ?? "-") last_conversation=\(AgySession.lastConversation(for: args[i + 1]) ?? "-")")
-        print("--- terminal ---")
-        print(text.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.prefix(30).joined(separator: "\n"))
-        fflush(stdout)
     }
     exit(0)
 }

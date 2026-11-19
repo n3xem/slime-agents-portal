@@ -6,27 +6,6 @@ struct Template {
     let name: String
     let symbol: String
     let color: V3
-    var engine: Engine = .claude
-}
-
-enum Engine: String, Codable, CaseIterable {
-    case claude, agy
-
-    var label: String {
-        switch self {
-        case .claude: return "Claude Code"
-        case .agy: return "Antigravity CLI"
-        }
-    }
-}
-
-enum AgyModes {
-    static let all: [(value: String, label: String)] = [
-        ("", "既定（agy の設定に従う）"),
-        ("accept-edits", "accept-edits（編集は自動で許可）"),
-        ("auto", "auto（自動で判断）"),
-        ("plan", "plan（計画のみ）"),
-    ]
 }
 
 enum EffortLevels {
@@ -47,36 +26,6 @@ enum ModelCatalog {
         ("sonnet", "sonnet（最新の Sonnet）"),
         ("haiku", "haiku（最新の Haiku）"),
     ]
-
-    private static var agyCache: [(value: String, label: String)]?
-    private static let lock = NSLock()
-
-    static func agy() -> [(value: String, label: String)] {
-        lock.lock()
-        if let c = agyCache { lock.unlock(); return c }
-        lock.unlock()
-        let env = ShellEnvironment.load()
-        guard let exe = ShellEnvironment.resolve("agy", env: env) else { return [] }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: exe)
-        p.arguments = ["models"]
-        p.environment = env
-        let out = Pipe()
-        p.standardOutput = out
-        p.standardError = FileHandle.nullDevice
-        guard (try? p.run()) != nil else { return [] }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        let list = String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap { line -> (value: String, label: String)? in
-            let cols = line.split(separator: "\t", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-            guard cols.count == 2, !cols[0].isEmpty, !cols[0].contains(" ") else { return nil }
-            return (cols[0], cols[1])
-        }
-        lock.lock()
-        if !list.isEmpty { agyCache = list }
-        lock.unlock()
-        return list
-    }
 }
 
 enum SandboxMode: String, Codable, CaseIterable {
@@ -138,18 +87,17 @@ struct TemplateModel: Codable, Identifiable, Equatable {
     var permissionMode: String?
     var worktree: Bool?
     var chrome: Bool?
-    var engine: Engine?
     var model: String?
     var effort: String?
     var agents: String = ""
 
     enum CodingKeys: String, CodingKey {
-        case id, name, symbol, color, workdir, sandbox, permissionMode, worktree, chrome, engine, model, effort
+        case id, name, symbol, color, workdir, sandbox, permissionMode, worktree, chrome, model, effort
     }
 
     var runtime: Template {
         let c = color.count == 3 ? V3(color[0], color[1], color[2]) : V3(0.6, 0.6, 0.6)
-        return Template(id: id, name: name, symbol: symbol, color: c, engine: engine ?? .claude)
+        return Template(id: id, name: name, symbol: symbol, color: c)
     }
 }
 

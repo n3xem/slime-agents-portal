@@ -1,6 +1,6 @@
 # Slime Factory の仕組み
 
-使い方は [README](../README.md) にあります。ここには、アプリが Claude Code や Antigravity CLI をどう起動し、どうつないでいるかを書きます。
+使い方は [README](../README.md) にあります。ここには、アプリが Claude Code をどう起動し、どうつないでいるかを書きます。
 
 ## テンプレートとセッション
 
@@ -35,7 +35,7 @@
 
 ## スライムの大きさ
 
-フックの入力に入っている `transcript_path`（会話の記録ファイル）の末尾 2MB を読み、最後のメインエージェントの応答の `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` をコンテキストの量とする。サブエージェントの応答は数えない。0 トークンで半径 0.8 倍、20 万トークンで 1.5 倍になり、それより先は大きくならない。フックが届くたびに読み直すので、`/compact` の後は次の応答でしぼむ。アプリの起動時にも、保存してある会話の記録（`~/.claude/projects/*/<セッション ID>.jsonl`）から一度読むので、起動前のスライムも会話の量に合った大きさで出る。agy のスライムは記録ファイルの形式が違うので、大きさが変わらない。
+フックの入力に入っている `transcript_path`（会話の記録ファイル）の末尾 2MB を読み、最後のメインエージェントの応答の `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` をコンテキストの量とする。サブエージェントの応答は数えない。0 トークンで半径 0.8 倍、20 万トークンで 1.5 倍になり、それより先は大きくならない。フックが届くたびに読み直すので、`/compact` の後は次の応答でしぼむ。アプリの起動時にも、保存してある会話の記録（`~/.claude/projects/*/<セッション ID>.jsonl`）から一度読むので、起動前のスライムも会話の量に合った大きさで出る。
 
 ## 島とスライムの作業ディレクトリ
 
@@ -69,21 +69,7 @@
 
 サンドボックスの全体の既定はオン（設定の「一般」で変えられる）。テンプレートで「全体の既定」を選ぶとこれに従う。
 
-テンプレートの「候補」には、Claude Code なら別名（fable・opus・sonnet・haiku）、Antigravity CLI なら `agy models` の一覧が出る。
-
-## Antigravity CLI のスライム
-
-agy のスライムは、島のディレクトリで agy を端末で対話的に起動する。許可の確認なども、スライムをクリックして開く端末で人が答える。
-
-```sh
-agy [--mode <モード>] [--sandbox] [--model <モデル>] [--effort <段階>] [--conversation <会話 ID> | -i <AGENTS.md の内容>]
-```
-
-- 設定は、サンドボックス（`--sandbox` を付けるか）、モード（`--mode`: accept-edits・auto・plan）、モデル、effort。テンプレートで agy を選ぶと、サンドボックスはオン、モードは accept-edits になる。worktree と Chrome 連携は使わない
-- 新しい会話では、テンプレートの AGENTS.md を最初の依頼（`-i`）として渡す
-- 会話 ID は、agy が作業ディレクトリごとに最後の会話を記録する `~/.gemini/antigravity-cli/cache/last_conversations.json` から、起動後に変わった値を読み取って `canvas.json` に保存する。アプリを再起動したら `--conversation` で会話を再開する。このファイルは agy の内部のもので、同じディレクトリで agy のスライムを 2 つ動かすと取り違えることがある
-- Claude Code のスライムと agy のスライムは矢印でつなげない。つまみは出ず、矢印を落としても付かない。管理セッションからの `SendMessage` と `connect_bubbles` も断る
-- 管理セッションからの点線は、Claude Code のスライムにだけ引く
+テンプレートの「候補」には、Claude Code の別名（fable・opus・sonnet・haiku）が出る。
 
 ## MCP サーバー
 

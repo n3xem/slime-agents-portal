@@ -96,11 +96,7 @@ final class SnapshotRunner {
 
     func run() {
         world.layout(size: V2(1440, 900))
-        world.syncTemplates(TemplateStore(persistent: false).templates.map { t -> Template in
-            var r = t.runtime
-            if t.id == "release" { r.engine = .agy }
-            return r
-        })
+        world.syncTemplates(TemplateStore(persistent: false).templates.map(\.runtime))
         world.addIsland(path: "/Users/example/workspace/todo-web", rect: CGRect(x: 250, y: 250, width: 930, height: 520))
         world.addIsland(path: "/Users/example/ghq/github.com/example/todo-api", rect: CGRect(x: 1200, y: 170, width: 220, height: 300))
         let store = TemplateStore(persistent: false)

@@ -732,7 +732,7 @@ final class World {
         }
         for b in bodies {
             var target: Float = 0
-            if hoverBody == b.id && !b.isConductor && b.engine == .claude {
+            if hoverBody == b.id && !b.isConductor {
                 let d = len(mouse - b.com)
                 if d > b.radius * b.scale * 0.5 {
                     target = 1
@@ -1117,7 +1117,7 @@ final class World {
             dragMode = .none
             return
         }
-        if let b = bodyAt(p, slack: 1.6), !b.isConductor, b.engine == .claude, knobHit(b, p) {
+        if let b = bodyAt(p, slack: 1.6), !b.isConductor, knobHit(b, p) {
             let r = Rope(id: nextId, from: b.id, start: b.knobPosition)
             nextId += 1
             r.free = p
@@ -1216,11 +1216,7 @@ final class World {
             }
         case .rope(let rid):
             if let r = ropes.first(where: { $0.id == rid }) {
-                if let t = bodyAt(p, slack: 1.15), t.id != r.from, !t.isConductor, t.engine != .claude {
-                    r.retracting = true
-                    t.kick(2.5)
-                    t.face.surprise = 0.6
-                } else if let t = bodyAt(p, slack: 1.15), t.id != r.from, !t.isConductor,
+                if let t = bodyAt(p, slack: 1.15), t.id != r.from, !t.isConductor,
                    !ropes.contains(where: { $0.id != r.id && $0.from == r.from && $0.to == t.id && !$0.retracting }) {
                     r.to = t.id
                     t.kick(3)

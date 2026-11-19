@@ -184,7 +184,6 @@ final class SoftBody {
     var titleFromClaude = false
 
     var displayName: String { title ?? template.name }
-    var engine: Engine { savedSession?.engine ?? template.engine }
     var lastHop: Float = 0
     var face = FaceState()
     var faceStyle: FaceStyle = FaceStyle.allCases.randomElement() ?? .standard

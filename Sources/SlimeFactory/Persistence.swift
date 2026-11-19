@@ -7,13 +7,12 @@ struct SavedSession: Codable, Equatable {
     var permissionMode: String
     var worktree: Bool
     var chrome: Bool?
-    var engine: Engine?
     var model: String?
     var effort: String?
 
     var launchConfig: LaunchConfig {
         LaunchConfig(workdir: workdir, sandbox: sandbox, permissionMode: permissionMode, worktree: worktree, chrome: chrome, conductorMCP: nil,
-                     model: model, effort: effort, engine: engine ?? .claude)
+                     model: model, effort: effort)
     }
 }
 
@@ -122,7 +121,7 @@ final class CanvasStore {
         }
         for r in canvas.ropes {
             guard let a = world.bodies.first(where: { $0.name == r.from }),
-                  let t = world.bodies.first(where: { $0.name == r.to }), a.engine == .claude, t.engine == .claude else { continue }
+                  let t = world.bodies.first(where: { $0.name == r.to }) else { continue }
             let rope = world.connect(a, t)
             rope.autoSend = r.autoSend
         }

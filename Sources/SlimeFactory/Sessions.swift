@@ -185,11 +185,10 @@ struct LaunchConfig {
     var conductorMCP: String?
     var model: String? = nil
     var effort: String? = nil
-    var engine: Engine = .claude
 
     func saved(_ id: String) -> SavedSession {
         SavedSession(sessionId: id, workdir: workdir, sandbox: sandbox, permissionMode: permissionMode, worktree: worktree,
-                     chrome: chrome, engine: engine == .claude ? nil : engine, model: model, effort: effort)
+                     chrome: chrome, model: model, effort: effort)
     }
 
     static func plain(_ workdir: String) -> LaunchConfig {
@@ -302,7 +301,6 @@ final class ClaudeSession: NSObject, LocalProcessTerminalViewDelegate, Observabl
             - 作業ディレクトリ・サンドボックス・権限モード・worktree は、セッションの起動前にしか変えられません。
             - スライムに作業を頼むときは、SendMessage でスライムの名前を宛先にして送ります。メッセージには目的、成果物の場所、依頼内容を書きます。起動していないスライムは、送信時に自動で起動します。
             - スライムの削除は人が行います。
-            - テンプレートには Claude Code と Antigravity CLI（agy）のエンジンがあります（list_templates の engine）。agy のスライムは人が端末で直接使うもので、SendMessage では送れず、矢印でもつなげません。
             """
         }
         return """
@@ -550,7 +548,6 @@ enum ClaudeSessionRegistry {
 
 final class SessionManager: ObservableObject {
     @Published private(set) var sessions: [Int: ClaudeSession] = [:]
-    @Published private(set) var agySessions: [Int: AgySession] = [:]
     private(set) var shell: ShellSession?
     private(set) var bodyShells: [Int: ShellSession] = [:]
     let server: HookServer?
@@ -594,11 +591,6 @@ final class SessionManager: ObservableObject {
         let workdir = resolvedWorkdir(for: body, template: tpl, store: store)
         let model = tpl.model.flatMap { $0.isEmpty ? nil : $0 }
         let effort = tpl.effort.flatMap { $0.isEmpty ? nil : $0 }
-        if tpl.engine == .agy {
-            return LaunchConfig(workdir: workdir, sandbox: body.config.sandbox ?? tpl.sandbox ?? .on,
-                                permissionMode: body.config.permissionMode ?? tpl.permissionMode ?? "accept-edits",
-                                worktree: false, chrome: nil, conductorMCP: nil, model: model, effort: effort, engine: .agy)
-        }
         return LaunchConfig(workdir: workdir,
                             sandbox: body.config.sandbox ?? tpl.sandbox ?? store.defaultSandbox,
                             permissionMode: body.config.permissionMode ?? tpl.permissionMode ?? "",
@@ -609,28 +601,8 @@ final class SessionManager: ObservableObject {
 
     @discardableResult
     func start(_ body: SoftBody, store: TemplateStore) -> Bool {
-        if body.engine == .agy { return agySession(for: body, store: store) != nil }
         return session(for: body, store: store) != nil
     }
-
-    func agySession(for body: SoftBody, store: TemplateStore) -> AgySession? {
-        if let a = agySessions[body.id] {
-            if a.exited { a.start() }
-            return a
-        }
-        let cfg = body.savedSession?.launchConfig ?? launchConfig(for: body, store: store)
-        let a = AgySession(bodyId: body.id, name: body.name, template: template(for: body, store: store), config: cfg,
-                           conversationId: body.savedSession?.sessionId)
-        agySessions[body.id] = a
-        a.onConversation = { [weak body, weak a] id in
-            guard let body, let a else { return }
-            body.savedSession = a.config.saved(id)
-        }
-        a.start()
-        return a
-    }
-
-    func existingAgy(_ id: Int) -> AgySession? { agySessions[id] }
 
     func session(for body: SoftBody, store: TemplateStore) -> ClaudeSession? {
         if let s = sessions[body.id] { return s }
@@ -657,13 +629,6 @@ final class SessionManager: ObservableObject {
     }
 
     func restart(_ body: SoftBody, store: TemplateStore) {
-        if let a = agySessions[body.id] {
-            var cfg = launchConfig(for: body, store: store)
-            cfg.workdir = a.config.workdir
-            a.restart(with: cfg)
-            if let id = a.conversationId { body.savedSession = a.config.saved(id) }
-            return
-        }
         guard let s = sessions[body.id] else { return }
         s.restart(with: launchConfig(for: body, store: store))
         body.savedSession = s.config.saved(s.sessionId)
@@ -678,28 +643,24 @@ final class SessionManager: ObservableObject {
     }
 
     func isReady(_ id: Int) -> Bool {
-        if let a = agySessions[id] { return !a.exited }
         guard let s = sessions[id] else { return false }
         return s.ready && !s.exited
     }
 
     func isAlive(_ id: Int) -> Bool {
-        if let a = agySessions[id] { return !a.exited }
         guard let s = sessions[id] else { return false }
         return !s.exited
     }
 
-    func hasStarted(_ id: Int) -> Bool { sessions[id] != nil || agySessions[id] != nil }
+    func hasStarted(_ id: Int) -> Bool { sessions[id] != nil }
 
     func state(_ id: Int) -> SessionState {
-        agySessions[id]?.state ?? sessions[id]?.state ?? .none
+        sessions[id]?.state ?? .none
     }
 
     func terminate(_ id: Int) {
         sessions[id]?.terminate()
         sessions[id] = nil
-        agySessions[id]?.terminate()
-        agySessions[id] = nil
         bodyShells[id]?.terminate()
         bodyShells[id] = nil
     }
@@ -728,7 +689,6 @@ final class SessionManager: ObservableObject {
 
     func terminateAll() {
         for s in sessions.values { s.terminate() }
-        for a in agySessions.values { a.terminate() }
         shell?.terminate()
         for s in bodyShells.values { s.terminate() }
     }

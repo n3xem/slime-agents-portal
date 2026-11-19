@@ -308,13 +308,12 @@ final class BubbleMenuBuilder: NSObject {
     }
 
     func build(_ b: SoftBody, into m: NSMenu) {
-        let cfg = sessions.existing(b.id)?.config ?? sessions.existingAgy(b.id)?.config ?? b.savedSession?.launchConfig
+        let cfg = sessions.existing(b.id)?.config ?? b.savedSession?.launchConfig
             ?? sessions.launchConfig(for: b, store: store)
         let started = sessions.isAlive(b.id)
         let locked = started || b.savedSession != nil
-        let agy = b.engine == .agy
         m.addItem(.separator())
-        let engineItem = NSMenuItem(title: "エンジン: " + b.engine.label + ((cfg.model ?? "").isEmpty ? "" : "（\(cfg.model!)）"),
+        let engineItem = NSMenuItem(title: "エンジン: Claude Code" + ((cfg.model ?? "").isEmpty ? "" : "（\(cfg.model!)）"),
                                     action: nil, keyEquivalent: "")
         engineItem.isEnabled = false
         m.addItem(engineItem)
@@ -332,8 +331,8 @@ final class BubbleMenuBuilder: NSObject {
 
         let sandbox = NSMenuItem(title: "サンドボックス: \(cfg.sandbox.short)", action: nil, keyEquivalent: "")
         let sm = NSMenu()
-        for mode in agy ? [SandboxMode.on, .off] : SandboxMode.allCases {
-            sm.addItem(item(agy ? (mode == .on ? "オン（--sandbox）" : "オフ") : mode.label, b, on: cfg.sandbox == mode) { body in
+        for mode in SandboxMode.allCases {
+            sm.addItem(item(mode.label, b, on: cfg.sandbox == mode) { body in
                 body.config.sandbox = mode
                 body.savedSession?.sandbox = mode
             })
@@ -343,7 +342,7 @@ final class BubbleMenuBuilder: NSObject {
 
         let perm = NSMenuItem(title: "権限モード: " + (cfg.permissionMode.isEmpty ? "既定" : cfg.permissionMode), action: nil, keyEquivalent: "")
         let pm = NSMenu()
-        for mode in agy ? AgyModes.all : PermissionModes.all {
+        for mode in PermissionModes.all {
             pm.addItem(item(mode.label, b, on: cfg.permissionMode == mode.value) { body in
                 body.config.permissionMode = mode.value
                 body.savedSession?.permissionMode = mode.value
@@ -352,10 +351,6 @@ final class BubbleMenuBuilder: NSObject {
         perm.submenu = pm
         m.addItem(perm)
 
-        if agy {
-            appendCommon(b, into: m, started: started)
-            return
-        }
         let chromeTitle: String = {
             switch cfg.chrome {
             case .none: return "既定"
@@ -419,7 +414,6 @@ final class BubbleMenuBuilder: NSObject {
         } else if b.savedSession != nil {
             m.addItem(item("会話をリセット（次は新しい会話で起動）", b) { body in
                 body.savedSession = nil
-                if body.engine == .agy { sessions.terminate(body.id) }
             })
         }
     }
@@ -497,12 +491,6 @@ struct ContentView: View {
                     if let id = ui.openBodyId, let s = sessions.existing(id) {
                         TerminalPanel(session: s, title: world.body(id)?.title, close: closeTerminal,
                                       openShell: { toggleSideShell(id, s.currentDirectory) })
-                            .trackPanelFrame(.terminal, in: ui)
-                            .transition(.panelIn(anchor: ui.anchor))
-                            .id(id)
-                    } else if let id = ui.openBodyId, let a = sessions.existingAgy(id) {
-                        AgyPanel(session: a, title: world.body(id)?.title, close: closeTerminal,
-                                 openShell: { toggleSideShell(id, a.config.workdir) })
                             .trackPanelFrame(.terminal, in: ui)
                             .transition(.panelIn(anchor: ui.anchor))
                             .id(id)
@@ -706,7 +694,7 @@ struct ContentView: View {
     private func panelIdentity(_ slot: PanelSlot) -> AnyHashable? {
         switch slot {
         case .terminal:
-            if let id = ui.openBodyId, sessions.existing(id) != nil || sessions.existingAgy(id) != nil { return "body-\(id)" }
+            if let id = ui.openBodyId, sessions.existing(id) != nil { return "body-\(id)" }
             if ui.shellOpen, sessions.shell != nil { return "shell" }
             return nil
         case .editor:

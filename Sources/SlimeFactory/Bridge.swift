@@ -245,10 +245,6 @@ final class FactoryBridge {
             respond(Self.decision(false, "Slime Factory: 「\(to)」は Slime Factory のスライムではないため、送れません。\(allowedText)"))
             return
         }
-        if target.engine == .agy {
-            respond(Self.decision(false, "Slime Factory: 「\(target.name)」は Antigravity CLI のスライムなので、SendMessage では送れません。人に伝えてください。"))
-            return
-        }
         if target.id != b.id && (b.isConductor || target.isConductor) {
             ensureRunning(target) {
                 respond(Self.decision(true, "Slime Factory: 管理セッションとの送受信は許可されています。"))

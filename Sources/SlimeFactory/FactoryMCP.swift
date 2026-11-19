@@ -254,7 +254,7 @@ final class FactoryMCP {
     }
 
     private func effective(_ b: SoftBody) -> LaunchConfig {
-        sessions.existing(b.id)?.config ?? sessions.existingAgy(b.id)?.config ?? b.savedSession?.launchConfig
+        sessions.existing(b.id)?.config ?? b.savedSession?.launchConfig
             ?? sessions.launchConfig(for: b, store: store)
     }
 
@@ -271,15 +271,15 @@ final class FactoryMCP {
         switch v {
         case "plan", "manual", "dontAsk": return 0
         case "": return 1
-        case "acceptEdits", "accept-edits": return 2
+        case "acceptEdits": return 2
         case "auto": return 3
         case "bypassPermissions": return 4
         default: return 4
         }
     }
 
-    private func permissionLabel(_ v: String, engine: Engine) -> String {
-        (engine == .agy ? AgyModes.all : PermissionModes.all).first { $0.value == v }?.label ?? v
+    private func permissionLabel(_ v: String) -> String {
+        PermissionModes.all.first { $0.value == v }?.label ?? v
     }
 
     private func loosening(_ args: [String: Any], for b: SoftBody) -> (keys: Set<String>, lines: [String]) {
@@ -293,7 +293,7 @@ final class FactoryMCP {
         if let pm = args["permission_mode"] as? String,
            Self.permissionRank(pm) > Self.permissionRank(cur.permissionMode) {
             keys.insert("permission_mode")
-            lines.append("権限モード: \(permissionLabel(cur.permissionMode, engine: b.engine)) → \(permissionLabel(pm, engine: b.engine))")
+            lines.append("権限モード: \(permissionLabel(cur.permissionMode)) → \(permissionLabel(pm))")
         }
         if let c = string(args, "chrome"), (c == "on" && cur.chrome != true) || (c == "default" && cur.chrome == false) {
             keys.insert("chrome")
@@ -331,8 +331,7 @@ final class FactoryMCP {
             }
         }
         if let pm = args["permission_mode"] as? String {
-            let modes = b.engine == .agy ? AgyModes.all : PermissionModes.all
-            guard modes.contains(where: { $0.value == pm }) else {
+            guard PermissionModes.all.contains(where: { $0.value == pm }) else {
                 throw ToolError(message: "permission_mode「\(pm)」は使えません。")
             }
             cfg.permissionMode = pm
@@ -349,7 +348,6 @@ final class FactoryMCP {
             "workdir": cfg.workdir,
             "sandbox": cfg.sandbox.rawValue,
             "permission_mode": cfg.permissionMode,
-            "engine": b.engine.rawValue,
             "model": cfg.model ?? "",
             "effort": cfg.effort ?? "",
             "worktree": cfg.worktree,
@@ -375,7 +373,6 @@ final class FactoryMCP {
                     "workdir": store.workdir(for: t),
                     "sandbox": (t.sandbox ?? store.defaultSandbox).rawValue,
                     "permission_mode": t.permissionMode ?? "",
-                    "engine": (t.engine ?? .claude).rawValue,
                     "model": t.model ?? "",
                     "effort": t.effort ?? "",
                     "worktree": t.worktree ?? true,
@@ -490,9 +487,6 @@ final class FactoryMCP {
         case "connect_bubbles":
             let a = try bubble(string(args, "from")), t = try bubble(string(args, "to"))
             guard a.id != t.id else { throw ToolError(message: "同じスライム同士はつなげません。") }
-            guard a.engine == .claude, t.engine == .claude else {
-                throw ToolError(message: "Antigravity CLI のスライムは矢印でつなげません。")
-            }
             let r = world.rope(from: a.id, to: t.id) ?? world.connect(a, t)
             t.kick(3)
             if let auto = args["auto_send"] as? Bool {

@@ -27,7 +27,7 @@ struct OverlayView: View {
                     Image(systemName: l.template.symbol)
                         .font(.system(size: 15, weight: .bold))
                         .overlay(alignment: .topTrailing) {
-                            EngineMark(engine: l.template.engine, size: 14)
+                            ClaudeMark(size: 14)
                                 .offset(x: 13, y: -6)
                         }
                     Text(l.template.name)
@@ -91,7 +91,7 @@ struct OverlayView: View {
             if let c = world.conductor, c.scale > 0.3 {
                 Canvas { ctx, _ in
                     let focus: Double = world.hoverBody == c.id ? 1 : 0
-                    for b in world.bodies where !b.isConductor && b.engine == .claude && b.absorbInto == nil && b.scale > 0.3 {
+                    for b in world.bodies where !b.isConductor && b.absorbInto == nil && b.scale > 0.3 {
                         let d = b.com - c.com
                         let L = len(d)
                         let rc = c.radius * c.scale * 0.95, rb = b.radius * b.scale * 0.95
@@ -215,7 +215,7 @@ struct OverlayView: View {
 
             ForEach(world.bodies.filter { $0.absorbInto == nil && $0.scale > 0.3 }, id: \.id) { b in
                 let r = b.radius * b.scale
-                EngineMark(engine: b.engine, size: 20)
+                ClaudeMark(size: 20)
                     .shadow(color: .black.opacity(0.4), radius: 2, y: 1)
                     .scaleEffect(CGFloat(b.scale))
                     .position(x: CGFloat(b.com.x - r * 0.9), y: CGFloat(b.com.y + r * 0.42))
