@@ -171,10 +171,33 @@ struct OverlayView: View {
                 }
                 .foregroundStyle(.white)
                 .shadow(color: .black.opacity(0.5), radius: 2, y: 1)
+                .opacity(Double(clampf(b.turn * 4 + 0.6, 0, 1)))
+                .scaleEffect(x: CGFloat(max(abs(b.turn), 0.001)), y: 1)
                 .scaleEffect(CGFloat(max(b.scale, 0.001)))
                 .rotationEffect(.radians(Double(clampf(b.angle * 0.8, -0.35, 0.35))))
                 .opacity(b.absorbInto == nil ? 1 : Double(max(0, b.scale * 1.5 - 0.3)))
                 .position(x: CGFloat(b.com.x), y: CGFloat(b.com.y))
+            }
+
+            ForEach(world.bodies.filter { $0.costume != nil && $0.absorbInto == nil }, id: \.id) { b in
+                if let costume = b.costume {
+                    let r = CGFloat(b.radius * b.scale)
+                    CostumeView(costume: costume, time: world.time,
+                                pose: b.posing ? CGFloat(clampf((world.time - (b.dressTime ?? world.time) - 0.9) / 0.63, 0, 1)) : 0)
+                        .frame(width: r * CostumeView.span, height: r * CostumeView.span)
+                        .scaleEffect(x: CGFloat(b.turn < 0 ? min(b.turn, -0.001) : max(b.turn, 0.001)), y: 1)
+                        .rotationEffect(.radians(Double(clampf(b.angle * 0.8, -0.35, 0.35))))
+                        .shadow(color: .black.opacity(0.35), radius: 2, y: 2)
+                        .position(x: CGFloat(b.com.x), y: CGFloat(b.com.y))
+                }
+            }
+
+            ForEach(world.bodies.filter { $0.dressTime != nil && $0.absorbInto == nil }, id: \.id) { b in
+                if let t0 = b.dressTime {
+                    SparkleView(age: CGFloat(world.time - t0), seed: b.id)
+                        .frame(width: SparkleView.size, height: SparkleView.size)
+                        .position(x: CGFloat(b.com.x), y: CGFloat(b.com.y))
+                }
             }
 
             if let c = world.conductor {

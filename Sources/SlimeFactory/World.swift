@@ -549,6 +549,7 @@ final class World {
         updateIslands(dt: dt)
         updateHover(dt: dt)
         updateStatus(dt: dt)
+        updateDressing()
 
         for b in bodies where b.popTime.map({ time - $0 > 0.09 }) == true && b.scaleTarget > 0 {
             b.scaleTarget = 0
@@ -926,6 +927,51 @@ final class World {
                                         v: dir * Float.random(in: big ? 240...380 : 380...720),
                                         r: r * (big ? Float.random(in: 0.24...0.32) : Float.random(in: 0.1...0.18)),
                                         color: b.template.color, target: .splash(b.id)))
+        }
+    }
+
+    func dress(_ b: SoftBody, _ costume: Costume?) {
+        b.nextCostume = costume
+        b.dressTime = time
+        b.kick(2)
+    }
+
+    private func updateDressing() {
+        for b in bodies {
+            if let h = b.dressHome {
+                if b.grabbed || time > b.dressHomeUntil || (len(b.com - h) < 1.5 && len(b.vcom) < 15) {
+                    b.dressHome = nil
+                } else {
+                    b.homeTarget = h
+                }
+            }
+            guard let t0 = b.dressTime else { continue }
+            let k = (time - t0) / 0.9
+            let e = min(max(k, 0), 1)
+            let theta = 2 * Float.pi * e * e * (3 - 2 * e)
+            b.turn = cos(theta)
+            b.turnDamp = k < 1.15 ? 34 : 0
+            if theta >= .pi, b.costume != b.nextCostume {
+                b.costume = b.nextCostume
+                b.kick(3)
+            }
+            let pose = k >= 1 && k < 1.7
+            if pose && !b.posing {
+                b.kick(3)
+                if b.homeTarget == nil && !b.grabbed {
+                    b.dressHome = b.com
+                    b.dressHomeUntil = time + 3
+                }
+                for i in 0..<b.n { b.v[i] += V2(0, -150) }
+                b.computeCom()
+                b.face.surprise = 0
+            }
+            b.posing = pose
+            if k >= 1.8 {
+                b.turn = 1
+                b.turnDamp = 0
+                b.dressTime = nil
+            }
         }
     }
 

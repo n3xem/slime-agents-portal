@@ -395,6 +395,24 @@ final class BubbleMenuBuilder: NSObject {
         faceItem.submenu = fm
         m.addItem(faceItem)
 
+        if !b.isConductor {
+            let world = world
+            let current = b.dressTime != nil ? b.nextCostume : b.costume
+            let costumeItem = NSMenuItem(title: "着せ替え: " + (current?.label ?? "なし"), action: nil, keyEquivalent: "")
+            let cm = NSMenu()
+            cm.addItem(item("なし", b, on: current == nil) { body in
+                if body.costume != nil || body.dressTime != nil { world.dress(body, nil) }
+            })
+            cm.addItem(.separator())
+            for costume in Costume.allCases {
+                cm.addItem(item(costume.label, b, on: current == costume) { body in
+                    world.dress(body, costume)
+                })
+            }
+            costumeItem.submenu = cm
+            m.addItem(costumeItem)
+        }
+
         let store = store, sessions = sessions
         if started {
             m.addItem(item("再起動して設定を反映（会話は引き継ぐ）", b) { body in sessions.restart(body, store: store) })

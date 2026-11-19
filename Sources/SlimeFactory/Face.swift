@@ -101,6 +101,7 @@ struct FaceState {
 
     static func target(_ b: SoftBody) -> FacePose {
         if b.grabbed { return FacePose(open: 1.2, happy: 0, brow: 0.5, tilt: -0.1, smile: 0.7, mouth: 0.45, blush: 0.6) }
+        if b.posing { return FacePose(open: 1.1, happy: 1, brow: 0.2, tilt: -0.3, smile: 1, mouth: 0.5, blush: 0.9) }
         if !b.pending.isEmpty { return FacePose(open: 1.05, happy: 0, brow: 0.5, tilt: 0.45, smile: 0.05, mouth: 0.12, blush: 0.3) }
         if let kind = b.badge?.kind {
             switch kind {

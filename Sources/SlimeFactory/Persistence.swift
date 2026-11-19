@@ -37,6 +37,7 @@ struct SavedBubble: Codable, Equatable {
     var titleLocked: Bool?
     var faceStyle: FaceStyle?
     var placed: Bool?
+    var costume: Costume?
 }
 
 struct SavedRope: Codable, Equatable {
@@ -79,7 +80,8 @@ final class CanvasStore {
                                permissionMode: b.config.permissionMode, worktree: b.config.worktree,
                                chrome: b.config.chrome ?? nil, chromeSet: b.config.chrome != nil, session: b.savedSession,
                                title: b.title, titleLocked: b.titleLocked, faceStyle: b.faceStyle,
-                               placed: b.isConductor && world.conductorSpot != nil ? true : nil)
+                               placed: b.isConductor && world.conductorSpot != nil ? true : nil,
+                               costume: b.dressTime != nil ? b.nextCostume : b.costume)
         }
         let ropes = world.ropes.filter { !$0.retracting && $0.to != nil }.compactMap { r -> SavedRope? in
             guard let a = world.body(r.from), let t = r.to.flatMap(world.body) else { return nil }
@@ -116,6 +118,7 @@ final class CanvasStore {
             b.titleLocked = sb.titleLocked ?? false
             b.titleFromClaude = sb.title != nil
             if let style = sb.faceStyle { b.faceStyle = style }
+            if !b.isConductor { b.costume = sb.costume }
         }
         for r in canvas.ropes {
             guard let a = world.bodies.first(where: { $0.name == r.from }),

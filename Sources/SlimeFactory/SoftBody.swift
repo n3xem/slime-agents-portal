@@ -148,6 +148,14 @@ final class SoftBody {
 
     var absorbInto: String?
     var popTime: Float?
+    var costume: Costume?
+    var nextCostume: Costume?
+    var dressTime: Float?
+    var turn: Float = 1
+    var turnDamp: Float = 0
+    var posing = false
+    var dressHome: V2?
+    var dressHomeUntil: Float = 0
     var sessionState: SessionState = .none
     var status: BodyStatus = .idle
     var statusTime: Float = 0
@@ -276,9 +284,10 @@ final class SoftBody {
             target = world.lump(lump).map { world.toWorld($0.com) } ?? world.toWorld(V2(world.toScreen(com).x, -60))
         }
         for i in 0..<n {
-            let r = rest[i] * s
+            var r = rest[i] * s
+            r.x *= max(abs(turn), 0.16)
             let goal = com + V2(c * r.x - sn * r.y, sn * r.x + c * r.y)
-            var acc = k * (goal - x[i]) - damp * (v[i] - vcom)
+            var acc = k * (goal - x[i]) - (damp + turnDamp) * (v[i] - vcom)
             if grabbed {
                 let w = grabWeights[i]
                 acc += 620 * w * (target + grabOffsets[i] - x[i]) + 34 * w * (world.mouseVel - v[i])
